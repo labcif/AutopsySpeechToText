@@ -1,0 +1,12 @@
+[submodule "webrtc-src"]
+	path = libraries/webrtc-src
+	url = https://webrtc.googlesource.com/src
+[submodule "abseil-cpp"]
+	path = libraries/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git
+[submodule "libraries/deepspeech"]
+	path = libraries/deepspeech
+	url = https://github.com/mozilla/DeepSpeech.git
+[submodule "python/inaSpeechSegmenter"]
+	path = python/inaSpeechSegmenter
+	url = https://github.com/miguel-negrao/inaSpeechSegmenter.git
