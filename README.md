@@ -39,10 +39,10 @@ Compatible with Autopsy version 4.16.0
 
 # Development
 
-The repository contains several git submodules. The deepspeech git submodule contains very large data files tracked by git lfs which are not needed. Possibly (untested) the filter in the command below will avoid downloading those files.
+The repository contains several git submodules. The deepspeech git submodule contains very large data files tracked by git lfs which are not needed. The command below will avoid downloading those files.
 
 ```
-git clone --recurse-submodules --config filter.lfs.smudge=true URLHERE
+GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/miguel-negrao/AutopsySpeechToText.git
 ```
 
 # Dependencies
@@ -72,7 +72,7 @@ git clone --recurse-submodules --config filter.lfs.smudge=true URLHERE
 - cmake
 - gcc
 - ffmpeg
-- python (tested with 3.7.6)
+- python (tested with 3.7.3)
 
 ### Directory structure
 
