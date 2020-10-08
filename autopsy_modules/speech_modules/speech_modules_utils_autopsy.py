@@ -1,5 +1,5 @@
 # Autopsy Speech to Text
-# Copyright 2020 Miguel Negrão.
+# Copyright 2020 Miguel Negrao.
 
 # Autopsy Speech to Text: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
