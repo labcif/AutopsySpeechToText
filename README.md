@@ -154,3 +154,11 @@ The autopsy module will be placed inside the plugin directory.
 - It is assumed that both inaSpeechSegmenter and libdeepspeech.so are build either with or without CUDA. When built using CUDA the needed CUDA libraries will be copied by inaSpeechSegmenter.
 - On Linux pyinstaller doesn't set the executable permissions to out/dist/ina_speech_segmenter/ina_speech_segmenter. One must do `chmod u+x 'out/dist/ina_speech_segmenter/ina_speech_segmenter'
 - ina_speech_segmenter not working with cudnn on Linux.
+
+# Authors
+
+This work was developed at Computer Engineering Department, Escola Superior de Tecnologia e Gestão - Politécnico de Leiria (ESTG/PL), Portugal.
+
+Concept - Patrício Domingues
+
+Development - Miguel Cerdeira Negrão
