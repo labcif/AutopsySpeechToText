@@ -18,44 +18,47 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 #WEBRTC
-add_library(webrtc STATIC
-    libraries/webrtc-src/common_audio/vad/vad_core.c
-    libraries/webrtc-src/common_audio/vad/vad_gmm.c
-    libraries/webrtc-src/common_audio/vad/webrtc_vad.c
-    libraries/webrtc-src/common_audio/vad/vad_filterbank.c  
-    libraries/webrtc-src/common_audio/vad/vad_sp.c
-    libraries/webrtc-src/common_audio/vad/vad.cc
-    libraries/webrtc-src/common_audio/signal_processing/division_operations.c
-    libraries/webrtc-src/common_audio/signal_processing/energy.c
-    libraries/webrtc-src/common_audio/signal_processing/get_scaling_square.c
-    libraries/webrtc-src/common_audio/signal_processing/resample_48khz.c
-    libraries/webrtc-src/common_audio/signal_processing/resample_by_2_internal.c
-    libraries/webrtc-src/common_audio/signal_processing/resample_fractional.c
-    libraries/webrtc-src/common_audio/signal_processing/spl_inl.c
-    libraries/webrtc-src/common_audio/signal_processing/spl_init.c
-    libraries/webrtc-src/common_audio/signal_processing/min_max_operations.c
-    libraries/webrtc-src/common_audio/signal_processing/cross_correlation.c
-    libraries/webrtc-src/common_audio/signal_processing/downsample_fast.c
-    libraries/webrtc-src/common_audio/signal_processing/vector_scaling_operations.c
-    libraries/webrtc-src/rtc_base/checks.cc
-)
+# add_library(webrtc STATIC
+#     libraries/webrtc-src/common_audio/vad/vad_core.c
+#     libraries/webrtc-src/common_audio/vad/vad_gmm.c
+#     libraries/webrtc-src/common_audio/vad/webrtc_vad.c
+#     libraries/webrtc-src/common_audio/vad/vad_filterbank.c  
+#     libraries/webrtc-src/common_audio/vad/vad_sp.c
+#     libraries/webrtc-src/common_audio/vad/vad.cc
+#     libraries/webrtc-src/common_audio/signal_processing/division_operations.c
+#     libraries/webrtc-src/common_audio/signal_processing/energy.c
+#     libraries/webrtc-src/common_audio/signal_processing/get_scaling_square.c
+#     libraries/webrtc-src/common_audio/signal_processing/resample_48khz.c
+#     libraries/webrtc-src/common_audio/signal_processing/resample_by_2_internal.c
+#     libraries/webrtc-src/common_audio/signal_processing/resample_fractional.c
+#     libraries/webrtc-src/common_audio/signal_processing/spl_inl.c
+#     libraries/webrtc-src/common_audio/signal_processing/spl_init.c
+#     libraries/webrtc-src/common_audio/signal_processing/min_max_operations.c
+#     libraries/webrtc-src/common_audio/signal_processing/cross_correlation.c
+#     libraries/webrtc-src/common_audio/signal_processing/downsample_fast.c
+#     libraries/webrtc-src/common_audio/signal_processing/vector_scaling_operations.c
+#     libraries/webrtc-src/rtc_base/checks.cc
+# )
 
-if(UNIX)
-    target_compile_definitions(webrtc PRIVATE WEBRTC_POSIX)
-endif(UNIX)
+# if(UNIX)
+#     target_compile_definitions(webrtc PRIVATE WEBRTC_POSIX)
+# endif(UNIX)
 
-if(WIN32)
-    target_compile_definitions(webrtc PRIVATE WEBRTC_WIN)
-endif(WIN32)
+# if(WIN32)
+#     target_compile_definitions(webrtc PRIVATE WEBRTC_WIN)
+# endif(WIN32)
 
-target_include_directories(webrtc PUBLIC
-    "${CMAKE_SOURCE_DIR}/libraries/webrtc-src"
-    "${CMAKE_SOURCE_DIR}/libraries/abseil-cpp")
+# target_include_directories(webrtc PUBLIC
+#     "${CMAKE_SOURCE_DIR}/libraries/webrtc-src"
+#     "${CMAKE_SOURCE_DIR}/libraries/abseil-cpp")
 
 #LIBDEEPSPEECH
 
-set(LIBDEEPSPEECH_PATH "${CMAKE_SOURCE_DIR}/libraries/tensorflow/bazel-bin/native_client/libdeepspeech.so" 
-    CACHE FILEPATH "Path to the libdeepspeech.so file. By default it is configured to pick the file built from source using the deepspeech and tensorflow git submodules.")
+set(LIBDEEPSPEECH_PATH "" 
+    CACHE FILEPATH "Path to the libdeepspeech.so file. It can be be obtained from native_client builds of deepspeech on github.")
+
+set(LIBDEEPSPEECH_HEADER_FOLDER_PATH "" 
+    CACHE FILEPATH "Path to the folder containing the deepspeech.h. It can be be obtained from native_client builds of deepspeech on github.")
 
 #on windows the .lib file is also needed.
 if(WIN32)
@@ -70,8 +73,10 @@ if(WIN32)
     set_property(TARGET libdeepspeech PROPERTY IMPORTED_IMPLIB ${LIBDEEPSPEECH_WIN_LIB_PATH})
 endif(WIN32)
 
+get_filename_component(LIBDEEPSPEECH_HEADER_FOLDER_PATH2 ${LIBDEEPSPEECH_PATH} DIRECTORY)
+message( ${LIBDEEPSPEECH_HEADER_FOLDER_PATH2} )
 target_include_directories(libdeepspeech INTERFACE
-    libraries/deepspeech/native_client #for deepspeech.h
+    ${LIBDEEPSPEECH_HEADER_FOLDER_PATH2}
     )
 
 #This is only relevant if libdeepspeech is built from source:    
@@ -83,12 +88,15 @@ target_include_directories(libdeepspeech INTERFACE
 #VAD_TRANSCRIBER
 
 set(vad_transcriber_sources 
+    #libraries/deepspeech/native_client/client.cc
     src/vad_transcriber/main.cc
 )
 add_executable(vad_transcriber ${vad_transcriber_sources})
 target_link_libraries(vad_transcriber Threads::Threads)
-target_link_libraries(vad_transcriber webrtc)
+#target_link_libraries(vad_transcriber webrtc)
 target_link_libraries(vad_transcriber libdeepspeech)
+target_link_libraries(vad_transcriber sox)
+#target_compile_definitions(vad_transcriber PUBLIC NO_SOX)
 
 # INSTALL AND PACKAGE
 if(WIN32)

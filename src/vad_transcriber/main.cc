@@ -1,10 +1,3 @@
-//code based on deepspeech\native_client\client.cc
-//which has license Mozilla Public License Version 2.0
-
-#ifdef NDEBUG /* N.B. assert used with active statements so enable always. */
-#undef NDEBUG /* Must undef above assert.h or other that might include it. */
-#endif
-
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -18,11 +11,24 @@
 
 #include <sstream>
 #include <string>
-#include <deque>
+#include <stdexcept> // std::runtime_error
+#include <fstream>
 #include <iomanip>
 
-#if defined(_MSC_VER) || defined(_WIN32)
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__ANDROID__) || defined(_MSC_VER) || TARGET_OS_IPHONE
+#define NO_SOX
+#endif
+
+#if defined(_MSC_VER)
 #define NO_DIR
+#endif
+
+#ifndef NO_SOX
+#include <sox.h>
 #endif
 
 #ifndef NO_DIR
@@ -31,137 +37,276 @@
 #endif // NO_DIR
 #include <vector>
 
-#include "common_audio/vad/include/vad.h"
-
 #include "deepspeech.h"
-#include "vad_transcriber_args.h"
+#include "args.h"
 
-#define N_CEP 26
-#define N_CONTEXT 9
-#define BEAM_WIDTH 500
-#define LM_ALPHA 0.75f
-#define LM_BETA 1.85f
+#ifdef NDEBUG /* N.B. assert used with active statements so enable always. */
+#undef NDEBUG /* Must undef above assert.h or other that might include it. */
+#endif
 
-//could be changed to variable later
-#define MODEL_SAMPLE_RATE 16000
-
-typedef struct
-{
-  char chunk_id[4];
-  uint32_t chunk_size;
-  char format[4];
-  char fmtchunk_id[4];
-  uint32_t fmtchunk_size;
-  uint16_t audio_format;
-  uint16_t num_channels;
-  uint32_t sample_rate;
-  uint32_t byte_rate;
-  uint16_t block_align;
-  uint16_t bits_per_sample;
-} WavHeader;
-
-typedef struct
-{
-  char chunk_id[4];
-  uint32_t chunk_size;
-} WavChunk;
-
-typedef struct
-{
-  const char *string;
+typedef struct {
+  const char* string;
   double cpu_time_overall;
 } ds_result;
 
-struct meta_word
-{
+struct meta_word {
   std::string word;
   float start_time;
   float duration;
 };
 
-char *metadataToString(Metadata *metadata);
-std::vector<meta_word> WordsFromMetadata(Metadata *metadata);
-char *JSONOutput(Metadata *metadata);
+char*
+CandidateTranscriptToString(const CandidateTranscript* transcript)
+{
+  std::string retval = "";
+  for (int i = 0; i < transcript->num_tokens; i++) {
+    const TokenMetadata& token = transcript->tokens[i];
+    retval += token.text;
+  }
+  return strdup(retval.c_str());
+}
+
+std::vector<meta_word>
+CandidateTranscriptToWords(const CandidateTranscript* transcript)
+{
+  std::vector<meta_word> word_list;
+
+  std::string word = "";
+  float word_start_time = 0;
+
+  // Loop through each token
+  for (int i = 0; i < transcript->num_tokens; i++) {
+    const TokenMetadata& token = transcript->tokens[i];
+
+    // Append token to word if it's not a space
+    if (strcmp(token.text, u8" ") != 0) {
+      // Log the start time of the new word
+      if (word.length() == 0) {
+        word_start_time = token.start_time;
+      }
+      word.append(token.text);
+    }
+
+    // Word boundary is either a space or the last token in the array
+    if (strcmp(token.text, u8" ") == 0 || i == transcript->num_tokens-1) {
+      float word_duration = token.start_time - word_start_time;
+
+      if (word_duration < 0) {
+        word_duration = 0;
+      }
+
+      meta_word w;
+      w.word = word;
+      w.start_time = word_start_time;
+      w.duration = word_duration;
+
+      word_list.push_back(w);
+
+      // Reset
+      word = "";
+      word_start_time = 0;
+    }
+  }
+
+  return word_list;
+}
+
+std::string
+CandidateTranscriptToJSON(const CandidateTranscript *transcript)
+{
+  std::ostringstream out_string;
+
+  std::vector<meta_word> words = CandidateTranscriptToWords(transcript);
+
+  out_string << R"("metadata":{"confidence":)" << transcript->confidence << R"(},"words":[)";
+
+  for (int i = 0; i < words.size(); i++) {
+    meta_word w = words[i];
+    out_string << R"({"word":")" << w.word << R"(","time":)" << w.start_time << R"(,"duration":)" << w.duration << "}";
+
+    if (i < words.size() - 1) {
+      out_string << ",";
+    }
+  }
+
+  out_string << "]";
+
+  return out_string.str();
+}
+
+char*
+MetadataToJSON(Metadata* result)
+{
+  std::ostringstream out_string;
+  out_string << "{\n";
+
+  for (int j=0; j < result->num_transcripts; ++j) {
+    const CandidateTranscript *transcript = &result->transcripts[j];
+
+    if (j == 0) {
+      out_string << CandidateTranscriptToJSON(transcript);
+
+      if (result->num_transcripts > 1) {
+        out_string << ",\n" << R"("alternatives")" << ":[\n";
+      }
+    } else {
+      out_string << "{" << CandidateTranscriptToJSON(transcript) << "}";
+
+      if (j < result->num_transcripts - 1) {
+        out_string << ",\n";
+      } else {
+        out_string << "\n]";
+      }
+    }
+  }
+  
+  out_string << "\n}\n";
+
+  return strdup(out_string.str().c_str());
+}
 
 ds_result
-LocalDsSTT(ModelState *aCtx, const short *aBuffer, size_t aBufferSize,
+LocalDsSTT(ModelState* aCtx, const short* aBuffer, size_t aBufferSize,
            bool extended_output, bool json_output)
 {
   ds_result res = {0};
 
   clock_t ds_start_time = clock();
 
-  if (extended_output)
-  {
-    Metadata *metadata = DS_SpeechToTextWithMetadata(aCtx, aBuffer, aBufferSize);
-    res.string = metadataToString(metadata);
-    DS_FreeMetadata(metadata);
-  }
-  else if (json_output)
-  {
-    Metadata *metadata = DS_SpeechToTextWithMetadata(aCtx, aBuffer, aBufferSize);
-    res.string = JSONOutput(metadata);
-    DS_FreeMetadata(metadata);
-  }
-  else if (stream_size > 0)
-  {
-    StreamingState *ctx;
+  // sphinx-doc: c_ref_inference_start
+  if (extended_output) {
+    Metadata *result = DS_SpeechToTextWithMetadata(aCtx, aBuffer, aBufferSize, 1);
+    res.string = CandidateTranscriptToString(&result->transcripts[0]);
+    DS_FreeMetadata(result);
+  } else if (json_output) {
+    Metadata *result = DS_SpeechToTextWithMetadata(aCtx, aBuffer, aBufferSize, json_candidate_transcripts);
+    res.string = MetadataToJSON(result);
+    DS_FreeMetadata(result);
+  } else if (stream_size > 0) {
+    StreamingState* ctx;
     int status = DS_CreateStream(aCtx, &ctx);
-    if (status != DS_ERR_OK)
-    {
+    if (status != DS_ERR_OK) {
       res.string = strdup("");
       return res;
     }
     size_t off = 0;
     const char *last = nullptr;
-    while (off < aBufferSize)
-    {
+    const char *prev = nullptr;
+    while (off < aBufferSize) {
       size_t cur = aBufferSize - off > stream_size ? stream_size : aBufferSize - off;
       DS_FeedAudioContent(ctx, aBuffer + off, cur);
       off += cur;
-      const char *partial = DS_IntermediateDecode(ctx);
-      if (last == nullptr || strcmp(last, partial))
-      {
+      prev = last;
+      const char* partial = DS_IntermediateDecode(ctx);
+      if (last == nullptr || strcmp(last, partial)) {
         printf("%s\n", partial);
         last = partial;
+      } else {
+        DS_FreeString((char *) partial);
       }
-      else
-      {
-        DS_FreeString((char *)partial);
+      if (prev != nullptr && prev != last) {
+        DS_FreeString((char *) prev);
       }
     }
-    if (last != nullptr)
-    {
-      DS_FreeString((char *)last);
+    if (last != nullptr) {
+      DS_FreeString((char *) last);
     }
     res.string = DS_FinishStream(ctx);
-  }
-  else
-  {
+  } else if (extended_stream_size > 0) {
+    StreamingState* ctx;
+    int status = DS_CreateStream(aCtx, &ctx);
+    if (status != DS_ERR_OK) {
+      res.string = strdup("");
+      return res;
+    }
+    size_t off = 0;
+    const char *last = nullptr;
+    const char *prev = nullptr;
+    while (off < aBufferSize) {
+      size_t cur = aBufferSize - off > extended_stream_size ? extended_stream_size : aBufferSize - off;
+      DS_FeedAudioContent(ctx, aBuffer + off, cur);
+      off += cur;
+      prev = last;
+      const Metadata* result = DS_IntermediateDecodeWithMetadata(ctx, 1);
+      const char* partial = CandidateTranscriptToString(&result->transcripts[0]);
+      if (last == nullptr || strcmp(last, partial)) {
+        printf("%s\n", partial);
+       last = partial;
+      } else {
+        free((char *) partial);
+      }
+      if (prev != nullptr && prev != last) {
+        free((char *) prev);
+      }
+      DS_FreeMetadata((Metadata *)result);
+    }
+    const Metadata* result = DS_FinishStreamWithMetadata(ctx, 1);
+    res.string = CandidateTranscriptToString(&result->transcripts[0]);
+    DS_FreeMetadata((Metadata *)result);
+    free((char *) last);
+  } else {
     res.string = DS_SpeechToText(aCtx, aBuffer, aBufferSize);
   }
+  // sphinx-doc: c_ref_inference_stop
 
   clock_t ds_end_infer = clock();
 
   res.cpu_time_overall =
-      ((double)(ds_end_infer - ds_start_time)) / CLOCKS_PER_SEC;
+    ((double) (ds_end_infer - ds_start_time)) / CLOCKS_PER_SEC;
 
   return res;
 }
 
-typedef struct
-{
-  char *buffer;
+typedef struct {
+  char*  buffer;
   size_t buffer_size;
-  int sample_rate;
 } ds_audio_buffer;
-/*
-//for testing
-void
-SaveBufferSegmentToDisk(ds_audio_buffer audio, size_t segment_start, size_t segment_size, const char *filepath)
+
+double
+DsSTTForSegment(ModelState *aCtx, const short *aBuffer, size_t segmentStartSamples,
+                 size_t segmentNumSamples, int aSampleRate, bool extendedOutput, bool jsonOutput)
 {
-  if (segment_size > audio.buffer_size)
+  // Pass audio to DeepSpeech
+  // We take half of buffer_size because buffer is a char* while
+  // LocalDsSTT() expected a short*
+  ds_result result = LocalDsSTT(aCtx,
+                                aBuffer,
+                                segmentNumSamples,
+                                extendedOutput,
+                                jsonOutput);
+
+  size_t n = segmentStartSamples / aSampleRate; //segment start in seconds
+  size_t hour = n / 3600;
+  n %= 3600;
+  size_t minutes = n / 60;
+  n %= 60;
+  size_t seconds = n;
+
+  if (result.string)
+  {
+    if(show_segment_time)
+      std::cout << std::setfill('0') << std::setw(2) << hour << "h"
+              << std::setfill('0') << std::setw(2) << minutes << "m"
+              << std::setfill('0') << std::setw(2) << seconds << "s: ";
+
+    if (extendedOutput)
+      std::cout << std::endl;
+
+    std::cout << result.string << std::endl;
+    DS_FreeString((char *)result.string);
+  }
+
+  return result.cpu_time_overall;
+}
+
+
+void
+SaveBufferSegmentToDisk(ds_audio_buffer audio, size_t segment_start, size_t segment_samples, const char *filepath)
+{
+  if (segment_samples > audio.buffer_size) {
+    std::cout << "segment_samples > audio.buffer_size " << filepath << std::endl;
     return;
+  }
 
   sox_signalinfo_t source_signal = {
       16000, // Rate
@@ -181,7 +326,7 @@ SaveBufferSegmentToDisk(ds_audio_buffer audio, size_t segment_start, size_t segm
     sox_false // Reverse endianness
   };
 
-  sox_format_t* input = sox_open_mem_read(audio.buffer+segment_start, segment_size, &source_signal, &source_encoding, "raw");
+  sox_format_t* input = sox_open_mem_read(audio.buffer+segment_start, segment_samples, &source_signal, &source_encoding, "raw");
 
   sox_format_t* output = sox_open_write(filepath, &source_signal, &source_encoding, "wav", NULL, NULL);
   assert(output);
@@ -217,410 +362,367 @@ SaveBufferSegmentToDisk(ds_audio_buffer audio, size_t segment_start, size_t segm
   sox_close(input);
 
 }
-*/
 
-//https://www.recordingblogs.com/wiki/format-chunk-of-a-wave-file
-struct chunk_t
-{
-  uint32_t id;   //"data" = 0x61746164
-  uint32_t size; //Chunk data bytes
-};
-
-//this function opens and reads a 16kHz, 16bit, mono, PCM WAVE file
-//files are converted externally to 16kHz wav by ffmpeg
 ds_audio_buffer
-GetAudioBuffer(const char *path)
+GetAudioBuffer(const char* path, int desired_sample_rate)
 {
-  ds_audio_buffer res;
+  ds_audio_buffer res = {0};
 
-  FILE *wave = fopen(path, "rb");
-  if (wave == nullptr)
-  {
-    fprintf(stderr, "Error opening %s: %s.\n", path, strerror(errno));
-    exit(1);
+#ifndef NO_SOX
+  sox_format_t* input = sox_open_read(path, NULL, NULL, NULL);
+  assert(input);
+
+  // Resample/reformat the audio so we can pass it through the MFCC functions
+  sox_signalinfo_t target_signal = {
+      static_cast<sox_rate_t>(desired_sample_rate), // Rate
+      1, // Channels
+      16, // Precision
+      SOX_UNSPEC, // Length
+      NULL // Effects headroom multiplier
+  };
+
+  sox_signalinfo_t interm_signal;
+
+  sox_encodinginfo_t target_encoding = {
+    SOX_ENCODING_SIGN2, // Sample format
+    16, // Bits per sample
+    0.0, // Compression factor
+    sox_option_default, // Should bytes be reversed
+    sox_option_default, // Should nibbles be reversed
+    sox_option_default, // Should bits be reversed (pairs of bits?)
+    sox_false // Reverse endianness
+  };
+
+#if TARGET_OS_OSX
+  // It would be preferable to use sox_open_memstream_write here, but OS-X
+  // doesn't support POSIX 2008, which it requires. See Issue #461.
+  // Instead, we write to a temporary file.
+  char* output_name = tmpnam(NULL);
+  assert(output_name);
+  sox_format_t* output = sox_open_write(output_name, &target_signal,
+                                        &target_encoding, "raw", NULL, NULL);
+#else
+  sox_format_t* output = sox_open_memstream_write(&res.buffer,
+                                                  &res.buffer_size,
+                                                  &target_signal,
+                                                  &target_encoding,
+                                                  "raw", NULL);
+#endif
+
+  assert(output);
+
+  if ((int)input->signal.rate < desired_sample_rate) {
+    fprintf(stderr, "Warning: original sample rate (%d) is lower than %dkHz. "
+                    "Up-sampling might produce erratic speech recognition.\n",
+                    desired_sample_rate, (int)input->signal.rate);
   }
 
-  WavHeader header;
-  size_t n;
+  // Setup the effects chain to decode/resample
+  char* sox_args[10];
+  sox_effects_chain_t* chain =
+    sox_create_effects_chain(&input->encoding, &output->encoding);
 
-  n = fread(&header, sizeof(header), 1, wave);
+  interm_signal = input->signal;
 
-  if (n != 1 ||
-      strncmp(header.chunk_id, "RIFF", 4) != 0 ||
-      strncmp(header.format, "WAVE", 4) != 0 ||
-      header.num_channels != 1 ||
-      header.bits_per_sample != 16 ||
-      header.sample_rate != MODEL_SAMPLE_RATE)
-  {
-    fprintf(stderr, "Error: %s is not a WAVE file.\n", path);
-    exit(1);
-  }
+  sox_effect_t* e = sox_create_effect(sox_find_effect("input"));
+  sox_args[0] = (char*)input;
+  assert(sox_effect_options(e, 1, sox_args) == SOX_SUCCESS);
+  assert(sox_add_effect(chain, e, &interm_signal, &input->signal) ==
+         SOX_SUCCESS);
+  free(e);
 
-  WavChunk chunkHeader;
+  e = sox_create_effect(sox_find_effect("rate"));
+  assert(sox_effect_options(e, 0, NULL) == SOX_SUCCESS);
+  assert(sox_add_effect(chain, e, &interm_signal, &output->signal) ==
+         SOX_SUCCESS);
+  free(e);
 
-  while (true)
-  {
-    n = fread(&chunkHeader, sizeof(chunkHeader), 1, wave);
-    if (n != 1)
-    {
-      fprintf(stderr, "Error reading WAVE file %s: %s\n", path, strerror(errno));
-      exit(1);
-    }
-    //wave audio data is in the "data" chunk
-    //skip all other chunks such as LIST
-    if (strncmp(chunkHeader.chunk_id, "data", 4) == 0)
-      break;
-    //skip chunk data bytes
-    n = fseek(wave, chunkHeader.chunk_size, SEEK_CUR);
-  }
+  e = sox_create_effect(sox_find_effect("channels"));
+  assert(sox_effect_options(e, 0, NULL) == SOX_SUCCESS);
+  assert(sox_add_effect(chain, e, &interm_signal, &output->signal) ==
+         SOX_SUCCESS);
+  free(e);
 
-  res.buffer_size = chunkHeader.chunk_size;
+  e = sox_create_effect(sox_find_effect("output"));
+  sox_args[0] = (char*)output;
+  assert(sox_effect_options(e, 1, sox_args) == SOX_SUCCESS);
+  assert(sox_add_effect(chain, e, &interm_signal, &output->signal) ==
+         SOX_SUCCESS);
+  free(e);
 
-  res.buffer = (char *)malloc(sizeof(char) * res.buffer_size);
-  assert(res.buffer != nullptr);
-  n = fread(res.buffer, sizeof(char), res.buffer_size, wave);
-  if (n != res.buffer_size)
-  {
-    fprintf(stderr, "Error reading WAVE file %s: %s\n", path, strerror(errno));
-    exit(1);
-  }
+  // Finally run the effects chain
+  sox_flow_effects(chain, NULL, NULL);
+  sox_delete_effects_chain(chain);
 
-  res.sample_rate = MODEL_SAMPLE_RATE;
+  // Close sox handles
+  sox_close(output);
+  sox_close(input);
+#endif // NO_SOX
+
+#ifdef NO_SOX
+  // FIXME: Hack and support only mono 16-bits PCM with standard SoX header
+  FILE* wave = fopen(path, "r");
+
+  size_t rv;
+
+  unsigned short audio_format;
+  fseek(wave, 20, SEEK_SET); rv = fread(&audio_format, 2, 1, wave);
+
+  unsigned short num_channels;
+  fseek(wave, 22, SEEK_SET); rv = fread(&num_channels, 2, 1, wave);
+
+  unsigned int sample_rate;
+  fseek(wave, 24, SEEK_SET); rv = fread(&sample_rate, 4, 1, wave);
+
+  unsigned short bits_per_sample;
+  fseek(wave, 34, SEEK_SET); rv = fread(&bits_per_sample, 2, 1, wave);
+
+  assert(audio_format == 1); // 1 is PCM
+  assert(num_channels == 1); // MONO
+  assert(sample_rate == desired_sample_rate); // at desired sample rate
+  assert(bits_per_sample == 16); // 16 bits per sample
+
+  fprintf(stderr, "audio_format=%d\n", audio_format);
+  fprintf(stderr, "num_channels=%d\n", num_channels);
+  fprintf(stderr, "sample_rate=%d (desired=%d)\n", sample_rate, desired_sample_rate);
+  fprintf(stderr, "bits_per_sample=%d\n", bits_per_sample);
+
+  fseek(wave, 40, SEEK_SET); rv = fread(&res.buffer_size, 4, 1, wave);
+  fprintf(stderr, "res.buffer_size=%ld\n", res.buffer_size);
+
+  fseek(wave, 44, SEEK_SET);
+  res.buffer = (char*)malloc(sizeof(char) * res.buffer_size);
+  rv = fread(res.buffer, sizeof(char), res.buffer_size, wave);
 
   fclose(wave);
+#endif // NO_SOX
+
+#if TARGET_OS_OSX
+  res.buffer_size = (size_t)(output->olength * 2);
+  res.buffer = (char*)malloc(sizeof(char) * res.buffer_size);
+  FILE* output_file = fopen(output_name, "rb");
+  assert(fread(res.buffer, sizeof(char), res.buffer_size, output_file) == res.buffer_size);
+  fclose(output_file);
+  unlink(output_name);
+#endif
 
   return res;
 }
 
-double
-DsSTTForSegment(ModelState *aCtx, const char *aBuffer, size_t aBufferSize,
-                int aSampleRate, bool extended_output, size_t segment_start_samples)
-{
-  // Pass audio to DeepSpeech
-  // We take half of buffer_size because buffer is a char* while
-  // LocalDsSTT() expected a short*
-  ds_result result = LocalDsSTT(aCtx,
-                                (const short *)aBuffer,
-                                aBufferSize / 2,
-                                extended_metadata,
-                                extended_output);
-
-  size_t n = segment_start_samples / (2 * aSampleRate); //segment start in seconds
-  size_t hour = n / 3600;
-  n %= 3600;
-  size_t minutes = n / 60;
-  n %= 60;
-  size_t seconds = n;
-
-  if (result.string)
-  {
-    if(show_segment_time)
-      std::cout << std::setfill('0') << std::setw(2) << hour << "h"
-              << std::setfill('0') << std::setw(2) << minutes << "m"
-              << std::setfill('0') << std::setw(2) << seconds << "s: ";
-
-    if (extended_output)
-      std::cout << std::endl;
-
-    std::cout << result.string << std::endl;
-    DS_FreeString((char *)result.string);
-  }
-
-  return result.cpu_time_overall;
+int
+secondsToNumBytes(float secs, int sample_rate) {
+  return sample_rate * secs * 2;
 }
 
-void ProcessFile(ModelState *context, const char *path, bool show_times)
+void
+ProcessFile(ModelState* context, const char* path, bool show_times)
 {
-  ds_audio_buffer audio = GetAudioBuffer(path);
-
-  std::unique_ptr<webrtc::Vad> vad = CreateVad(static_cast<webrtc::Vad::Aggressiveness>(vad_aggressiveness));
-
-  const float percentage_window = 0.95;
-  const int frame_dur_ms = 30;
-  size_t frame_num_samples = audio.sample_rate * (frame_dur_ms / 1000.0) * 2; //two bytes per sample
-  const int window_dur_ms = 300;
-  size_t window_num_frames = window_dur_ms / frame_dur_ms;
-
-  std::deque<bool> vad_frames_window;
-  bool triggered = false;
-  webrtc::Vad::Activity result;
+  int sample_rate = DS_GetModelSampleRate(context);
+  ds_audio_buffer audio = GetAudioBuffer(path, sample_rate);
   double total_cpu_time = 0.0;
 
-  char *frame_start_pos = NULL;
-  size_t num_voiced_frames = 0;
-  size_t segment_count = 0;
-  size_t segment_start_pos = 0;
-  size_t segment_num_samples = 0;
-  size_t previous_segment_end = 0;
-  size_t total_frames = audio.buffer_size / frame_num_samples;
+  std::ifstream myFile(ina_speech_segmenter_csv);
 
-  //Process in increments of one frame. Each frame is 30ms. The last group of samples might be smaller than one frame.
-  for (size_t frame = 0, pos = 0; frame < total_frames; frame++, pos += frame_num_samples)
+  if(!myFile.is_open()) throw std::runtime_error("Could not open file");
+  
+  std::string line;
+  std::string content_type;
+  float start, end;
+
+  int segment_count = 0;
+
+  while(std::getline(myFile, line))
   {
-    frame_start_pos = audio.buffer + pos;
+    std::stringstream ss(line);
 
-    result = vad->VoiceActivity((const int16_t *)frame_start_pos, frame_num_samples / 2, audio.sample_rate);
-    if (result == webrtc::Vad::Activity::kError)
-    {
-      std::cout << "VAD error.\n";
-      exit(EXIT_FAILURE);
-    }
+    ss >> content_type;
+    ss >> start;
+    ss >> end;
+    //std::cout << "type: " << content_type << " start: " << start << " end: " << end << "\n";
 
-    if (result == webrtc::Vad::Activity::kActive)
-    {
-      vad_frames_window.push_front(true);
-    }
+    if (content_type == "Male" || content_type == "Female") {
 
-    if (result == webrtc::Vad::Activity::kPassive)
-    {
-      vad_frames_window.push_front(false);
-    }
+      std::ostringstream segment_path;
+      // segment_path << "audio/sound-" << segment_count << "-voiced.wav";
+      // std::cout << "saving file " << segment_path.str() << std::endl;
 
-    if (vad_frames_window.size() > window_num_frames)
-    {
-      vad_frames_window.pop_back();
-    }
+      // Pass audio to DeepSpeech
+      // We take half of buffer_size because buffer is a char* while
+      // LocalDsSTT() expected a short*
+      size_t num_bytes_per_sample = 2;
+      float extra_time = 0.5; //seconds
+      float extra_time_at_start = start - extra_time >= 0 ? extra_time : start;
+      float end_time = audio.buffer_size / sample_rate / num_bytes_per_sample;
+      float extra_time_at_end = end + extra_time >= end_time ? end_time - end : extra_time;
 
-    num_voiced_frames = 0;
-    for (bool b : vad_frames_window)
-    {
-      if (b)
-        num_voiced_frames++;
-    }
+      float final_segment_start = start - extra_time_at_start;
+      float final_segment_size = end-start+extra_time_at_start+extra_time_at_end;
 
-    if (triggered)
-    {
+      size_t start_bytes = secondsToNumBytes(final_segment_start, sample_rate);
+      size_t segment_samples = sample_rate * final_segment_size;
+      size_t start_samples = final_segment_start * sample_rate;
 
-      if (num_voiced_frames < (1.0 - percentage_window) * window_num_frames)
+      assert(start_bytes < audio.buffer_size);
+      assert(start_bytes+(segment_samples*num_bytes_per_sample) <= audio.buffer_size);
+
+      total_cpu_time += DsSTTForSegment(context,
+                                    (const short*) (audio.buffer + start_bytes),
+                                    start_samples,
+                                    segment_samples,
+                                    sample_rate,
+                                    extended_metadata,
+                                    json_output);
+
+      // std::cout << "extra_time_at_start: " << extra_time_at_start << " extra_time_at_end: " << extra_time_at_end 
+      // << "final_segment_start: " << final_segment_start << "final_segment_end: " <<  final_segment_start + final_segment_size << std::endl;
+      // SaveBufferSegmentToDisk(audio, 
+      //                         start_bytes, 
+      //                         segment_samples * num_bytes_per_sample,
+      //                         segment_path.str().c_str());
+      segment_count++;
+
+      if (show_times)
       {
-        triggered = false;
-
-        // std::ostringstream segment_path;
-        // segment_path << "audio/sound-" << segment_count << "-voiced.wav";
-        // printf("Saving segment starting at %d ending at %d with size %d into file %s\n", segment_start_pos, segment_start_pos+ segment_num_samples, segment_num_samples, segment_path.str().c_str() );
-        // SaveBufferSegmentToDisk(audio, segment_start_pos, segment_num_samples, segment_path.str().c_str() );
-
-        total_cpu_time += DsSTTForSegment(context,
-                                          audio.buffer + segment_start_pos,
-                                          segment_num_samples,
-                                          audio.sample_rate,
-                                          extended_metadata,
-                                          segment_start_pos);
-
-        previous_segment_end = segment_start_pos + segment_num_samples;
-        segment_num_samples = 0;
-        segment_start_pos = pos + frame_num_samples; //new segment will start on next frame
-        vad_frames_window.clear();
-
-        segment_count++;
+        printf("\n\ncpu_time_overall=%.05f\n", total_cpu_time);
       }
-      else
-      {
-        //keep increasing segment
-        segment_num_samples += frame_num_samples;
-      }
+
+
     }
-    else
-    {
-      if (num_voiced_frames > percentage_window * window_num_frames)
-      {
-        triggered = true;
-        //this frame is part of segment, grow it
-        segment_num_samples += frame_num_samples;
-        // std::ostringstream segment_path;
-        // segment_path << "audio/sound-" << segment_count << "-unvoiced.wav";
 
-        // printf("Saving segment starting at %d ending at %d with size %d into file %s\n", previous_segment_end, segment_start_pos, segment_start_pos - previous_segment_end, segment_path.str().c_str() );
-        // SaveBufferSegmentToDisk(audio, previous_segment_end, segment_start_pos - previous_segment_end, segment_path.str().c_str() );
-        segment_count++;
-      }
-      else
-      //still not triggered
-      {
-        //segment already size of window then keep same size
-        if (vad_frames_window.size() == window_num_frames)
-        {
-          segment_start_pos += frame_num_samples; //advance the region by one frame
-        }
-        //otherwise grow segment
-        else
-        {
-          segment_num_samples += frame_num_samples;
-        }
-      }
-    }
-  }
-
-  //process last segment if triggered is true
-  if (triggered)
-  {
-    //add remaining samples if sound file size is not multiple of frame size
-    if (audio.buffer_size % frame_num_samples != 0)
-    {
-      segment_num_samples += audio.buffer_size % frame_num_samples;
-    }
-    assert(segment_start_pos + segment_num_samples == audio.buffer_size);
-    total_cpu_time += DsSTTForSegment(context,
-                                      audio.buffer + segment_start_pos,
-                                      segment_num_samples,
-                                      audio.sample_rate,
-                                      extended_metadata,
-                                      segment_start_pos);
-  }
-
-  if (show_times)
-  {
-    printf("\n\ncpu_time_overall=%.05f\n", total_cpu_time);
-  }
-
+   }
   free(audio.buffer);
+  myFile.close();
+  
 }
 
-char *
-metadataToString(Metadata *metadata)
+std::vector<std::string>
+SplitStringOnDelim(std::string in_string, std::string delim)
 {
-  std::string retval = "";
-  for (int i = 0; i < metadata->num_items; i++)
-  {
-    MetadataItem item = metadata->items[i];
-    retval += item.character;
+  std::vector<std::string> out_vector;
+  char * tmp_str = new char[in_string.size() + 1];
+  std::copy(in_string.begin(), in_string.end(), tmp_str);
+  tmp_str[in_string.size()] = '\0';
+  const char* token = strtok(tmp_str, delim.c_str());
+  while( token != NULL ) {
+    out_vector.push_back(token);
+    token = strtok(NULL, delim.c_str());
   }
-  return strdup(retval.c_str());
+  delete[] tmp_str;
+  return out_vector;
 }
 
-std::vector<meta_word>
-WordsFromMetadata(Metadata *metadata)
+int
+main(int argc, char **argv)
 {
-  std::vector<meta_word> word_list;
-
-  std::string word = "";
-  float word_start_time = 0;
-
-  // Loop through each character
-  for (int i = 0; i < metadata->num_items; i++)
-  {
-    MetadataItem item = metadata->items[i];
-
-    // Append character to word if it's not a space
-    if (strcmp(item.character, " ") != 0 && strcmp(item.character, u8"　") != 0)
-    {
-      word.append(item.character);
-    }
-
-    // Word boundary is either a space or the last character in the array
-    if (strcmp(item.character, " ") == 0 || strcmp(item.character, u8" ") == 0 || i == metadata->num_items - 1)
-    {
-
-      float word_duration = item.start_time - word_start_time;
-
-      if (word_duration < 0)
-      {
-        word_duration = 0;
-      }
-
-      meta_word w;
-      w.word = word;
-      w.start_time = word_start_time;
-      w.duration = word_duration;
-
-      word_list.push_back(w);
-
-      // Reset
-      word = "";
-      word_start_time = 0;
-    }
-    else
-    {
-      if (word.length() == 1)
-      {
-        word_start_time = item.start_time; // Log the start time of the new word
-      }
-    }
-  }
-
-  return word_list;
-}
-
-char *
-JSONOutput(Metadata *metadata)
-{
-  std::vector<meta_word> words = WordsFromMetadata(metadata);
-
-  std::ostringstream out_string;
-  out_string << R"({"metadata":{"confidence":)" << metadata->confidence << R"(},"words":[)";
-
-  for (int i = 0; i < words.size(); i++)
-  {
-    meta_word w = words[i];
-    out_string << R"({"word":")" << w.word << R"(","time":)" << w.start_time << R"(,"duration":)" << w.duration << "}";
-
-    if (i < words.size() - 1)
-    {
-      out_string << ",";
-    }
-  }
-
-  out_string << "]}\n";
-
-  return strdup(out_string.str().c_str());
-}
-
-int main(int argc, char **argv)
-{
-  if (!ProcessArgs(argc, argv))
-  {
+  if (!ProcessArgs(argc, argv)) {
     return 1;
   }
 
+  printf("ina_speech_segmenter_csv: %s\n", ina_speech_segmenter_csv);
   // Initialise DeepSpeech
-  ModelState *ctx;
-  int status = DS_CreateModel(model, beam_width, &ctx);
-  if (status != 0)
-  {
-    fprintf(stderr, "Could not create model.\n");
+  ModelState* ctx;
+  // sphinx-doc: c_ref_model_start
+  int status = DS_CreateModel(model, &ctx);
+  if (status != 0) {
+    char* error = DS_ErrorCodeToErrorMessage(status);
+    fprintf(stderr, "Could not create model: %s\n", error);
+    free(error);
     return 1;
   }
 
-  if (lm && (trie || load_without_trie))
-  {
-    int status = DS_EnableDecoderWithLM(ctx,
-                                        lm,
-                                        trie,
-                                        lm_alpha,
-                                        lm_beta);
-    if (status != 0)
-    {
-      fprintf(stderr, "Could not enable CTC decoder with LM.\n");
+  if (set_beamwidth) {
+    status = DS_SetModelBeamWidth(ctx, beam_width);
+    if (status != 0) {
+      fprintf(stderr, "Could not set model beam width.\n");
       return 1;
     }
   }
 
-  if (DS_GetModelSampleRate(ctx) != MODEL_SAMPLE_RATE)
-  {
-    fprintf(stderr, "This version of vad_transcriber only works with models prepared to operate at samplerate 16000.\n");
-    return 1;
+  if (scorer) {
+    status = DS_EnableExternalScorer(ctx, scorer);
+    if (status != 0) {
+      fprintf(stderr, "Could not enable external scorer.\n");
+      return 1;
+    }
+    if (set_alphabeta) {
+      status = DS_SetScorerAlphaBeta(ctx, lm_alpha, lm_beta);
+      if (status != 0) {
+        fprintf(stderr, "Error setting scorer alpha and beta.\n");
+        return 1;
+      }
+    }
+  }
+  // sphinx-doc: c_ref_model_stop
+
+  if (hot_words) {
+    std::vector<std::string> hot_words_ = SplitStringOnDelim(hot_words, ",");
+    for ( std::string hot_word_ : hot_words_ ) {
+      std::vector<std::string> pair_ = SplitStringOnDelim(hot_word_, ":");
+      const char* word = (pair_[0]).c_str();
+      // the strtof function will return 0 in case of non numeric characters
+      // so, check the boost string before we turn it into a float
+      bool boost_is_valid = (pair_[1].find_first_not_of("-.0123456789") == std::string::npos);
+      float boost = strtof((pair_[1]).c_str(),0);
+      status = DS_AddHotWord(ctx, word, boost);
+      if (status != 0 || !boost_is_valid) {
+        fprintf(stderr, "Could not enable hot-word.\n");
+        return 1;
+      }
+    }
   }
 
+#ifndef NO_SOX
+  // Initialise SOX
+  assert(sox_init() == SOX_SUCCESS);
+#endif
+
   struct stat wav_info;
-  if (0 != stat(audio, &wav_info))
-  {
+  if (0 != stat(audio, &wav_info)) {
     printf("Error on stat: %d\n", errno);
   }
 
-  switch (wav_info.st_mode & S_IFMT)
-  {
-#ifndef _WIN32
-  case S_IFLNK:
-    break;
+  switch (wav_info.st_mode & S_IFMT) {
+#ifndef _MSC_VER
+    case S_IFLNK:
 #endif
-  case S_IFREG:
-    ProcessFile(ctx, audio, show_times);
-    break;
+    case S_IFREG:
+        ProcessFile(ctx, audio, show_times);
+      break;
 
-  default:
-    printf("Unexpected type for %s: %d\n", audio, (wav_info.st_mode & S_IFMT));
-    break;
+#ifndef NO_DIR
+    case S_IFDIR:
+        {
+          printf("Running on directory %s\n", audio);
+          DIR* wav_dir = opendir(audio);
+          assert(wav_dir);
+
+          struct dirent* entry;
+          while ((entry = readdir(wav_dir)) != NULL) {
+            std::string fname = std::string(entry->d_name);
+            if (fname.find(".wav") == std::string::npos) {
+              continue;
+            }
+
+            std::ostringstream fullpath;
+            fullpath << audio << "/" << fname;
+            std::string path = fullpath.str();
+            printf("> %s\n", path.c_str());
+            ProcessFile(ctx, path.c_str(), show_times);
+          }
+          closedir(wav_dir);
+        }
+      break;
+#endif
+
+    default:
+        printf("Unexpected type for %s: %d\n", audio, (wav_info.st_mode & S_IFMT));
+      break;
   }
+
+#ifndef NO_SOX
+  // Deinitialise and quit
+  sox_quit();
+#endif // NO_SOX
 
   DS_FreeModel(ctx);
 
