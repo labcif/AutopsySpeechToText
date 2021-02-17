@@ -45,6 +45,7 @@ from org.sleuthkit.datamodel import ReadContentInputStream
 from org.sleuthkit.autopsy.coreutils import Logger
 from java.lang import IllegalArgumentException
 
+import codecs
 
 import jarray
 import inspect
@@ -205,22 +206,20 @@ class VadCheckModule(DataSourceIngestModule):
         self.log(Level.INFO, "Starting vad_check_ingest with settings minPercVoiced " + str(self.local_settings.minPercVoiced) + 
                 " minTotalVoiced " + str(self.local_settings.minTotalVoiced))
 
-        progressBar.switchToIndeterminate()
         fileManager = Case.getCurrentCase().getServices().getFileManager()
         #get all files
         files = fileManager.findFiles(dataSource, "%")
         numFiles = len(files)
         self.log(Level.INFO, "found " + str(numFiles) + " files")
-        progressBar.switchToDeterminate(numFiles)
+        progressBar.switchToDeterminate(4)
 
         filesForVoiceClassification = []
+        filesForDeepspeech = []
         fileCount = 0
         for file in files:
             try:
                 self.log(Level.INFO, "Processing file: " + file.getName())
-                progressBar.progress(file.getName())
                 fileCount += 1
-                progressBar.progress(fileCount)
                 
                 # Skip non-files
                 if ((file.getType() != TskData.TSK_DB_FILES_TYPE_ENUM.UNALLOC_BLOCKS) and
@@ -258,13 +257,12 @@ class VadCheckModule(DataSourceIngestModule):
 
         tmpFiles = map(lambda x: x[1], filesForVoiceClassification)
         self.log(Level.INFO, "Files to classify speech/not speech:\n" + "\n".join(tmpFiles))
-        progressBar.switchToIndeterminate()
+        progressBar.progress(1)
         #now run all files of interest through ina_speech_segmenter to detect voice activity
-#TODO remove call to fmpeg from ina_speech_segmenter
         try:
             ina_clock_start = time.clock()
             execSubprocess([
-                getExecInModule("ina_speech_segmenter"),
+                getExecInModule("ina_speech_segmenter/ina_speech_segmenter"),
                 "-i"] + tmpFiles + [
                 "-o", Case.getCurrentCase().getTempDirectory() ], self)
             ina_clock_end = time.clock()
@@ -273,12 +271,12 @@ class VadCheckModule(DataSourceIngestModule):
             for file, tmpFile in filesForVoiceClassification:
                 addArtifact(file, "error")
 
-        progressBar.switchToDeterminate(len(filesForVoiceClassification))
+        progressBar.progress(2)
         
         for file, tmpFile in filesForVoiceClassification:
             tmpFileBase, _ = os.path.splitext(tmpFile)
             csvFile = tmpFileBase + ".csv"
-            total_voiced, total_female, total_male = processInaSpeechSegmenterCSV(csvFile)
+            total_voiced, total_female, total_male = processInaSpeechSegmenterCSV(csvFile, self)
             perc_voiced_frames = total_voiced / duration * 100
 
             if ((perc_voiced_frames > self.local_settings.minPercVoiced ) and
@@ -291,12 +289,7 @@ class VadCheckModule(DataSourceIngestModule):
                 if total_female > 0:
                     addArtifact(file, "Audio files with speech - female")
 
-                if self.local_settings.runVadTranscriber:
-                    try:
-                        transcribeFile(file, tmpFile, self.local_settings.vadTranscriberLanguage, self.local_settings.showTextSegmentStartTime, self, VadCheckModuleFactory.moduleName)
-                        tagsManager.addContentTag(file, tagTranscribed)
-                    except SubprocessError:
-                        continue
+                filesForDeepspeech.append((file, tmpFile))
             else:
                 self.log(Level.INFO, "Audio file " + file.getName() + "doesn't match conditions. perc_voiced_frames = " + str(perc_voiced_frames)+
                     "total_voiced = " + str(total_voiced))
@@ -306,8 +299,32 @@ class VadCheckModule(DataSourceIngestModule):
             IngestServices.getInstance().fireModuleDataEvent(
                 ModuleDataEvent(VadCheckModuleFactory.moduleName,
                     BlackboardArtifact.ARTIFACT_TYPE.TSK_INTERESTING_FILE_HIT, None))
-            progressBar.progress(fileCount)
+        
+        progressBar.progress(3)
 			
+        if self.local_settings.runVadTranscriber and len(filesForDeepspeech) > 0:
+            tmpFiles = map(lambda x: x[1], filesForDeepspeech)
+            try:
+                #transcribe all files in one go
+                transcribeFiles(tmpFiles, self.local_settings.vadTranscriberLanguage, self.local_settings.showTextSegmentStartTime, self)
+            except SubprocessError:
+                self.log(Level.INFO, "deepspeech failed")
+
+            for file, wavFile in filesForDeepspeech:
+                wavFileBase, _ = os.path.splitext(wavFile)
+                txtFile = wavFileBase + ".txt"
+                self.log(Level.INFO, "importing text file: " + txtFile)
+                try:
+                    with codecs.open(txtFile, 'r', 'utf8') as txtFile2:
+                        txtContent = txtFile2.read()
+                        art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
+                        att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT, VadCheckModuleFactory.moduleName, txtContent.decode('utf-8'))
+                        art.addAttribute(att)
+                        indexArtifact(art, self)
+                        tagsManager.addContentTag(file, tagTranscribed)
+                except:
+                    self.log(Level.INFO, "Could not open " + txtFile)
+
         end = time.clock()
         self.log(Level.INFO, "Vad_check_ingest completed in " + str(end-start) + "s")
         return IngestModule.ProcessResult.OK

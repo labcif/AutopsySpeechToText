@@ -120,21 +120,13 @@ def getAVFileDuration(audioFile, logObj):
                             ], logObj)
         return float(stdout)
 
-def transcribeFile(abstractFile, tmpAudioFile, language, showTextSegmentStartTime, logObj, moduleName):
+def transcribeFiles(tmpAudioFiles, language, showTextSegmentStartTime, logObj):
         baseDir = os.path.dirname(os.path.realpath(__file__))
-        args = [getExecInModule("vad_transcriber"),
-        "--model", baseDir + "/models/" + language + "/output_graph.pb",
-        "--trie", baseDir + "/models/" + language + "/english/trie",
-        "--lm", baseDir + "/models/" + language + "/lm.binary",
-        "--audio", tmpAudioFile] + ([] if showTextSegmentStartTime else ["-i"])
-        stdout, _ = execSubprocess(args, logObj)
-        
-        art = abstractFile.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
-        att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT, moduleName, stdout)
-        art.addAttribute(att)
-
-        indexArtifact(art, logObj)
-        return stdout
+        args = [getExecInModule("deepspeech/deepspeech_csv"),
+        "--model", baseDir + "/models/" + language + "/deepspeech.pbmm",
+        "--scorer", baseDir + "/models/" + language + "/deepspeech.scorer"
+        ] + ([] if showTextSegmentStartTime else ["-i"]) + tmpAudioFiles
+        execSubprocess(args, logObj)
 
 def makeLanguageSelectionComboBox(obj, value):
         modelsDir = os.path.dirname(os.path.realpath(__file__)) + "/models/"

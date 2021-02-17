@@ -16,17 +16,19 @@
 
 import csv
 import functools
+from java.util.logging import Level
 
-def processInaSpeechSegmenterCSV(path):
+def processInaSpeechSegmenterCSV(path, log):
+    log.log(Level.INFO, "Processing csv file: " + path)
     with open(path) as csv_file:
         csv_reader = list(csv.reader(csv_file, delimiter='\t'))
 
     f = lambda x, line: x + float(line[2]) - float(line[1])
 
-    male = filter(lambda line: line[0] == "Male", csv_reader)
+    male = filter(lambda line: line[0] == "male", csv_reader)
     total_male = functools.reduce(f, male, 0)
 
-    female = filter(lambda line: line[0] == "Female", csv_reader)
+    female = filter(lambda line: line[0] == "female", csv_reader)
     total_female = functools.reduce(f, female, 0)
 
     total_voices = total_male + total_female
