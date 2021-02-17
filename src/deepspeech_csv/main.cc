@@ -262,9 +262,33 @@ typedef struct {
   size_t buffer_size;
 } ds_audio_buffer;
 
+void
+writeSegmentText(std::ostream& out, size_t segmentStartSamples,
+                 int aSampleRate, bool extendedOutput, const char *string)
+{
+   if(show_segment_time) {
+      size_t n = segmentStartSamples / aSampleRate; //segment start in seconds
+      size_t hour = n / 3600;
+      n %= 3600;
+      size_t minutes = n / 60;
+      n %= 60;
+      size_t seconds = n;
+      out << std::setfill('0') << std::setw(2) << hour << "h"
+              << std::setfill('0') << std::setw(2) << minutes << "m"
+              << std::setfill('0') << std::setw(2) << seconds << "s: ";
+
+    }
+
+    if (extendedOutput)
+      out << std::endl;
+
+    out << string << std::endl;
+}
+
 double
 DsSTTForSegment(ModelState *aCtx, const short *aBuffer, size_t segmentStartSamples,
-                 size_t segmentNumSamples, int aSampleRate, bool extendedOutput, bool jsonOutput)
+                 size_t segmentNumSamples, int aSampleRate, bool extendedOutput, bool jsonOutput,
+                 std::ofstream& outFile)
 {
   // Pass audio to DeepSpeech
   // We take half of buffer_size because buffer is a char* while
@@ -275,31 +299,17 @@ DsSTTForSegment(ModelState *aCtx, const short *aBuffer, size_t segmentStartSampl
                                 extendedOutput,
                                 jsonOutput);
 
-  size_t n = segmentStartSamples / aSampleRate; //segment start in seconds
-  size_t hour = n / 3600;
-  n %= 3600;
-  size_t minutes = n / 60;
-  n %= 60;
-  size_t seconds = n;
-
   if (result.string)
   {
-    if(show_segment_time)
-      std::cout << std::setfill('0') << std::setw(2) << hour << "h"
-              << std::setfill('0') << std::setw(2) << minutes << "m"
-              << std::setfill('0') << std::setw(2) << seconds << "s: ";
-
-    if (extendedOutput)
-      std::cout << std::endl;
-
-    std::cout << result.string << std::endl;
+    writeSegmentText(std::cout, segmentStartSamples, aSampleRate, extendedOutput, result.string);
+    writeSegmentText(outFile, segmentStartSamples, aSampleRate, extendedOutput, result.string);
     DS_FreeString((char *)result.string);
   }
 
   return result.cpu_time_overall;
 }
 
-
+#ifdef CSV_DEBUG
 void
 SaveBufferSegmentToDisk(ds_audio_buffer audio, size_t segment_start, size_t segment_samples, const char *filepath)
 {
@@ -362,149 +372,100 @@ SaveBufferSegmentToDisk(ds_audio_buffer audio, size_t segment_start, size_t segm
   sox_close(input);
 
 }
-
-ds_audio_buffer
-GetAudioBuffer(const char* path, int desired_sample_rate)
-{
-  ds_audio_buffer res = {0};
-
-#ifndef NO_SOX
-  sox_format_t* input = sox_open_read(path, NULL, NULL, NULL);
-  assert(input);
-
-  // Resample/reformat the audio so we can pass it through the MFCC functions
-  sox_signalinfo_t target_signal = {
-      static_cast<sox_rate_t>(desired_sample_rate), // Rate
-      1, // Channels
-      16, // Precision
-      SOX_UNSPEC, // Length
-      NULL // Effects headroom multiplier
-  };
-
-  sox_signalinfo_t interm_signal;
-
-  sox_encodinginfo_t target_encoding = {
-    SOX_ENCODING_SIGN2, // Sample format
-    16, // Bits per sample
-    0.0, // Compression factor
-    sox_option_default, // Should bytes be reversed
-    sox_option_default, // Should nibbles be reversed
-    sox_option_default, // Should bits be reversed (pairs of bits?)
-    sox_false // Reverse endianness
-  };
-
-#if TARGET_OS_OSX
-  // It would be preferable to use sox_open_memstream_write here, but OS-X
-  // doesn't support POSIX 2008, which it requires. See Issue #461.
-  // Instead, we write to a temporary file.
-  char* output_name = tmpnam(NULL);
-  assert(output_name);
-  sox_format_t* output = sox_open_write(output_name, &target_signal,
-                                        &target_encoding, "raw", NULL, NULL);
-#else
-  sox_format_t* output = sox_open_memstream_write(&res.buffer,
-                                                  &res.buffer_size,
-                                                  &target_signal,
-                                                  &target_encoding,
-                                                  "raw", NULL);
 #endif
 
-  assert(output);
+//could be changed to variable later
+#define MODEL_SAMPLE_RATE 16000
 
-  if ((int)input->signal.rate < desired_sample_rate) {
-    fprintf(stderr, "Warning: original sample rate (%d) is lower than %dkHz. "
-                    "Up-sampling might produce erratic speech recognition.\n",
-                    desired_sample_rate, (int)input->signal.rate);
+typedef struct
+{
+  char chunk_id[4];
+  uint32_t chunk_size;
+  char format[4];
+  char fmtchunk_id[4];
+  uint32_t fmtchunk_size;
+  uint16_t audio_format;
+  uint16_t num_channels;
+  uint32_t sample_rate;
+  uint32_t byte_rate;
+  uint16_t block_align;
+  uint16_t bits_per_sample;
+} WavHeader;
+
+typedef struct
+{
+  char chunk_id[4];
+  uint32_t chunk_size;
+} WavChunk;
+
+
+//https://www.recordingblogs.com/wiki/format-chunk-of-a-wave-file
+struct chunk_t
+{
+  uint32_t id;   //"data" = 0x61746164
+  uint32_t size; //Chunk data bytes
+};
+
+//this function opens and reads a 16kHz, 16bit, mono, PCM WAVE file
+//files are converted externally to 16kHz wav by ffmpeg
+ds_audio_buffer
+GetAudioBuffer(const char *path)
+{
+  ds_audio_buffer res;
+
+  FILE *wave = fopen(path, "rb");
+  if (wave == nullptr)
+  {
+    fprintf(stderr, "Error opening %s: %s.\n", path, strerror(errno));
+    exit(1);
   }
 
-  // Setup the effects chain to decode/resample
-  char* sox_args[10];
-  sox_effects_chain_t* chain =
-    sox_create_effects_chain(&input->encoding, &output->encoding);
+  WavHeader header;
+  size_t n;
 
-  interm_signal = input->signal;
+  n = fread(&header, sizeof(header), 1, wave);
 
-  sox_effect_t* e = sox_create_effect(sox_find_effect("input"));
-  sox_args[0] = (char*)input;
-  assert(sox_effect_options(e, 1, sox_args) == SOX_SUCCESS);
-  assert(sox_add_effect(chain, e, &interm_signal, &input->signal) ==
-         SOX_SUCCESS);
-  free(e);
+  if (n != 1 ||
+      strncmp(header.chunk_id, "RIFF", 4) != 0 ||
+      strncmp(header.format, "WAVE", 4) != 0 ||
+      header.num_channels != 1 ||
+      header.bits_per_sample != 16 ||
+      header.sample_rate != MODEL_SAMPLE_RATE)
+  {
+    fprintf(stderr, "Error: %s is not a WAVE file.\n", path);
+    exit(1);
+  }
 
-  e = sox_create_effect(sox_find_effect("rate"));
-  assert(sox_effect_options(e, 0, NULL) == SOX_SUCCESS);
-  assert(sox_add_effect(chain, e, &interm_signal, &output->signal) ==
-         SOX_SUCCESS);
-  free(e);
+  WavChunk chunkHeader;
 
-  e = sox_create_effect(sox_find_effect("channels"));
-  assert(sox_effect_options(e, 0, NULL) == SOX_SUCCESS);
-  assert(sox_add_effect(chain, e, &interm_signal, &output->signal) ==
-         SOX_SUCCESS);
-  free(e);
+  while (true)
+  {
+    n = fread(&chunkHeader, sizeof(chunkHeader), 1, wave);
+    if (n != 1)
+    {
+      fprintf(stderr, "Error reading WAVE file %s: %s\n", path, strerror(errno));
+      exit(1);
+    }
+    //wave audio data is in the "data" chunk
+    //skip all other chunks such as LIST
+    if (strncmp(chunkHeader.chunk_id, "data", 4) == 0)
+      break;
+    //skip chunk data bytes
+    n = fseek(wave, chunkHeader.chunk_size, SEEK_CUR);
+  }
 
-  e = sox_create_effect(sox_find_effect("output"));
-  sox_args[0] = (char*)output;
-  assert(sox_effect_options(e, 1, sox_args) == SOX_SUCCESS);
-  assert(sox_add_effect(chain, e, &interm_signal, &output->signal) ==
-         SOX_SUCCESS);
-  free(e);
+  res.buffer_size = chunkHeader.chunk_size;
 
-  // Finally run the effects chain
-  sox_flow_effects(chain, NULL, NULL);
-  sox_delete_effects_chain(chain);
-
-  // Close sox handles
-  sox_close(output);
-  sox_close(input);
-#endif // NO_SOX
-
-#ifdef NO_SOX
-  // FIXME: Hack and support only mono 16-bits PCM with standard SoX header
-  FILE* wave = fopen(path, "r");
-
-  size_t rv;
-
-  unsigned short audio_format;
-  fseek(wave, 20, SEEK_SET); rv = fread(&audio_format, 2, 1, wave);
-
-  unsigned short num_channels;
-  fseek(wave, 22, SEEK_SET); rv = fread(&num_channels, 2, 1, wave);
-
-  unsigned int sample_rate;
-  fseek(wave, 24, SEEK_SET); rv = fread(&sample_rate, 4, 1, wave);
-
-  unsigned short bits_per_sample;
-  fseek(wave, 34, SEEK_SET); rv = fread(&bits_per_sample, 2, 1, wave);
-
-  assert(audio_format == 1); // 1 is PCM
-  assert(num_channels == 1); // MONO
-  assert(sample_rate == desired_sample_rate); // at desired sample rate
-  assert(bits_per_sample == 16); // 16 bits per sample
-
-  fprintf(stderr, "audio_format=%d\n", audio_format);
-  fprintf(stderr, "num_channels=%d\n", num_channels);
-  fprintf(stderr, "sample_rate=%d (desired=%d)\n", sample_rate, desired_sample_rate);
-  fprintf(stderr, "bits_per_sample=%d\n", bits_per_sample);
-
-  fseek(wave, 40, SEEK_SET); rv = fread(&res.buffer_size, 4, 1, wave);
-  fprintf(stderr, "res.buffer_size=%ld\n", res.buffer_size);
-
-  fseek(wave, 44, SEEK_SET);
-  res.buffer = (char*)malloc(sizeof(char) * res.buffer_size);
-  rv = fread(res.buffer, sizeof(char), res.buffer_size, wave);
+  res.buffer = (char *)malloc(sizeof(char) * res.buffer_size);
+  assert(res.buffer != nullptr);
+  n = fread(res.buffer, sizeof(char), res.buffer_size, wave);
+  if (n != res.buffer_size)
+  {
+    fprintf(stderr, "Error reading WAVE file %s: %s\n", path, strerror(errno));
+    exit(1);
+  }
 
   fclose(wave);
-#endif // NO_SOX
-
-#if TARGET_OS_OSX
-  res.buffer_size = (size_t)(output->olength * 2);
-  res.buffer = (char*)malloc(sizeof(char) * res.buffer_size);
-  FILE* output_file = fopen(output_name, "rb");
-  assert(fread(res.buffer, sizeof(char), res.buffer_size, output_file) == res.buffer_size);
-  fclose(output_file);
-  unlink(output_name);
-#endif
 
   return res;
 }
@@ -517,42 +478,69 @@ secondsToNumBytes(float secs, int sample_rate) {
 void
 ProcessFile(ModelState* context, const char* path, bool show_times)
 {
+
+  std::string spath{path};
+  std::size_t found = spath.find_last_of(".");
+
+  std::cout << "Processing file " << spath << std::endl;
+
+  if (found == std::string::npos || (spath.substr(found) != ".wav")) {
+    std::cout << spath << ": file must end in .wav" << std::endl;
+    return;
+  }
+
+  std::string spath_csv = spath.substr(0,found) + ".csv"; 
+
   int sample_rate = DS_GetModelSampleRate(context);
-  ds_audio_buffer audio = GetAudioBuffer(path, sample_rate);
+  ds_audio_buffer audio = GetAudioBuffer(path);
   double total_cpu_time = 0.0;
 
-  std::ifstream myFile(ina_speech_segmenter_csv);
+  std::ifstream csvFile(spath_csv);
+  if(!csvFile.is_open()) {
+    std::cout << "Could not open ina_speech_segmenter csv file: " << spath_csv << std::endl;
+    return;
+  }
 
-  if(!myFile.is_open()) throw std::runtime_error("Could not open file");
-  
+  std::string spath_txt = spath.substr(0,found) + ".txt"; 
+  std::ofstream txtFile(spath_txt);
+  if(!txtFile.is_open()) {
+    std::cout << "Could not open txt file: " << spath_csv << std::endl;
+    return;
+  }
+
   std::string line;
   std::string content_type;
   float start, end;
 
   int segment_count = 0;
 
-  while(std::getline(myFile, line))
+  while(std::getline(csvFile, line))
   {
     std::stringstream ss(line);
 
     ss >> content_type;
     ss >> start;
     ss >> end;
-    //std::cout << "type: " << content_type << " start: " << start << " end: " << end << "\n";
+    #ifdef CSV_DEBUG
+    std::cout << "type: " << content_type << " start: " << start << " end: " << end << "\n";
+    #endif
 
-    if (content_type == "Male" || content_type == "Female") {
+    if (content_type == "male" || content_type == "female") {
 
+      #ifdef CSV_DEBUG
       std::ostringstream segment_path;
-      // segment_path << "audio/sound-" << segment_count << "-voiced.wav";
-      // std::cout << "saving file " << segment_path.str() << std::endl;
+      segment_path << "audio/sound-" << segment_count << "-voiced.wav";
+      std::cout << "saving file " << segment_path.str() << std::endl;
+      #endif
 
       // Pass audio to DeepSpeech
       // We take half of buffer_size because buffer is a char* while
       // LocalDsSTT() expected a short*
       size_t num_bytes_per_sample = 2;
-      float extra_time = 0.5; //seconds
+      const float extra_time = 0.5; //seconds
       float extra_time_at_start = start - extra_time >= 0 ? extra_time : start;
-      float end_time = audio.buffer_size / sample_rate / num_bytes_per_sample;
+      float end_time = ((float) audio.buffer_size) / ((float) sample_rate) / ((float) num_bytes_per_sample);
+      //std::cout << "buffer_size: " << audio.buffer_size << "sample_rate: " << sample_rate << "end_time : " << end_time << std::endl;
       float extra_time_at_end = end + extra_time >= end_time ? end_time - end : extra_time;
 
       float final_segment_start = start - extra_time_at_start;
@@ -571,27 +559,28 @@ ProcessFile(ModelState* context, const char* path, bool show_times)
                                     segment_samples,
                                     sample_rate,
                                     extended_metadata,
-                                    json_output);
+                                    json_output,
+                                    txtFile);
 
-      // std::cout << "extra_time_at_start: " << extra_time_at_start << " extra_time_at_end: " << extra_time_at_end 
-      // << "final_segment_start: " << final_segment_start << "final_segment_end: " <<  final_segment_start + final_segment_size << std::endl;
-      // SaveBufferSegmentToDisk(audio, 
-      //                         start_bytes, 
-      //                         segment_samples * num_bytes_per_sample,
-      //                         segment_path.str().c_str());
+      #ifdef CSV_DEBUG
+      std::cout << "extra_time_at_start: " << extra_time_at_start << " extra_time_at_end: " << extra_time_at_end 
+      << "final_segment_start: " << final_segment_start << "final_segment_end: " <<  final_segment_start + final_segment_size << std::endl;
+      SaveBufferSegmentToDisk(audio, 
+                              start_bytes, 
+                              segment_samples * num_bytes_per_sample,
+                              segment_path.str().c_str());
       segment_count++;
+      #endif
 
       if (show_times)
       {
         printf("\n\ncpu_time_overall=%.05f\n", total_cpu_time);
       }
-
-
     }
 
    }
   free(audio.buffer);
-  myFile.close();
+  csvFile.close();
   
 }
 
@@ -618,7 +607,6 @@ main(int argc, char **argv)
     return 1;
   }
 
-  printf("ina_speech_segmenter_csv: %s\n", ina_speech_segmenter_csv);
   // Initialise DeepSpeech
   ModelState* ctx;
   // sphinx-doc: c_ref_model_start
@@ -676,47 +664,27 @@ main(int argc, char **argv)
   assert(sox_init() == SOX_SUCCESS);
 #endif
 
-  struct stat wav_info;
-  if (0 != stat(audio, &wav_info)) {
-    printf("Error on stat: %d\n", errno);
-  }
+  for (std::string s: audio_list) {
+    
+    const char *audio = s.c_str();
+    struct stat wav_info;
+    if (0 != stat(audio, &wav_info)) {
+      printf("Error on stat for %s: %s\n", audio, strerror(errno));
+      continue;
+    }
 
-  switch (wav_info.st_mode & S_IFMT) {
-#ifndef _MSC_VER
-    case S_IFLNK:
-#endif
-    case S_IFREG:
-        ProcessFile(ctx, audio, show_times);
-      break;
+    switch (wav_info.st_mode & S_IFMT) {
+  #ifndef _MSC_VER
+      case S_IFLNK:
+  #endif
+      case S_IFREG:
+          ProcessFile(ctx, audio, show_times);
+        break;
 
-#ifndef NO_DIR
-    case S_IFDIR:
-        {
-          printf("Running on directory %s\n", audio);
-          DIR* wav_dir = opendir(audio);
-          assert(wav_dir);
-
-          struct dirent* entry;
-          while ((entry = readdir(wav_dir)) != NULL) {
-            std::string fname = std::string(entry->d_name);
-            if (fname.find(".wav") == std::string::npos) {
-              continue;
-            }
-
-            std::ostringstream fullpath;
-            fullpath << audio << "/" << fname;
-            std::string path = fullpath.str();
-            printf("> %s\n", path.c_str());
-            ProcessFile(ctx, path.c_str(), show_times);
-          }
-          closedir(wav_dir);
-        }
-      break;
-#endif
-
-    default:
-        printf("Unexpected type for %s: %d\n", audio, (wav_info.st_mode & S_IFMT));
-      break;
+      default:
+          printf("Unexpected file type for %s: %d\n", audio, (wav_info.st_mode & S_IFMT));
+        break;
+    }
   }
 
 #ifndef NO_SOX

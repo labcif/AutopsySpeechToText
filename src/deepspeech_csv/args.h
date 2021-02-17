@@ -46,10 +46,12 @@ char* ina_speech_segmenter_csv = NULL;
 
 bool show_segment_time = true;
 
+std::vector<std::string> audio_list;
+
 void PrintHelp(const char* bin)
 {
     std::cout <<
-    "Usage: " << bin << " --model MODEL [--scorer SCORER] --audio AUDIO [-t] [-e]\n"
+    "Usage: " << bin << " --model MODEL [--scorer SCORER] --audio AUDIO [-t] [-e] audio_file [audio_file]\n"
     "\n"
     "Running DeepSpeech inference with inaSpeechSegmenter csv file.\n"
     "\n"
@@ -66,7 +68,7 @@ void PrintHelp(const char* bin)
     "\t--stream size\t\t\tRun in stream mode, output intermediate results\n"
     "\t--extended_stream size\t\t\tRun in stream mode using metadata output, output intermediate results\n"
     "\t--hot_words\t\t\tHot-words and their boosts. Word:Boost pairs are comma-separated\n"
-    "	--hide_segment_time	Hide start time of each text segment\n"
+    "\t--hide_segment_time\tHide start time of each text segment\n"
     "\t--ina_speech_segmenter_csv\tcsv file from inaSpeechSegmenter\n"
     "\t--help\t\t\t\tShow help\n"
     "\t--version\t\t\tPrint version and exits\n";
@@ -78,11 +80,10 @@ void PrintHelp(const char* bin)
 
 bool ProcessArgs(int argc, char** argv)
 {
-    const char* const short_opts = "m:l:a:b:c:d:tejs:w:z:i:vh";
+    const char* const short_opts = "m:l:b:c:d:tejs:w:z:i:vh";
     const option long_opts[] = {
             {"model", required_argument, nullptr, 'm'},
             {"scorer", required_argument, nullptr, 'l'},
-            {"audio", required_argument, nullptr, 'a'},
             {"beam_width", required_argument, nullptr, 'b'},
             {"lm_alpha", required_argument, nullptr, 'c'},
             {"lm_beta", required_argument, nullptr, 'd'},
@@ -115,10 +116,6 @@ bool ProcessArgs(int argc, char** argv)
 
         case 'l':
             scorer = optarg;
-            break;
-
-        case 'a':
-            audio = optarg;
             break;
 
         case 'b':
@@ -191,7 +188,7 @@ bool ProcessArgs(int argc, char** argv)
         return false;
     }
 
-    if (!model || !audio) {
+    if (!model) {
         PrintHelp(argv[0]);
         return false;
     }
@@ -199,6 +196,16 @@ bool ProcessArgs(int argc, char** argv)
     if ((stream_size < 0 || stream_size % 160 != 0) || (extended_stream_size < 0 || extended_stream_size % 160 != 0)) {
         std::cout <<
         "Stream buffer size must be multiples of 160\n";
+        return false;
+    }
+
+    for (int index = optind; index < argc; index++) {
+        printf ("Non-option argument %s\n", argv[index]);
+        audio_list.push_back(argv[index]);
+    }
+
+    if (audio_list.empty()) {
+        PrintHelp(argv[0]);
         return false;
     }
 
