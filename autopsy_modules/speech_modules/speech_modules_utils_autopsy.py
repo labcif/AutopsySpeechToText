@@ -31,6 +31,8 @@ from org.sleuthkit.datamodel import BlackboardAttribute
 import os
 import subprocess
 import wave
+import codecs
+import time
 
 #note: changes in this file require restarting autopsy
 
@@ -120,6 +122,15 @@ def getAVFileDuration(audioFile, logObj):
                             ], logObj)
         return float(stdout)
 
+def runInaSpeechSegmener(files, obj):
+        ina_clock_start = time.clock()
+        execSubprocess([
+                getExecInModule("ina_speech_segmenter/ina_speech_segmenter"),
+                "-i"] + files + [
+                "-o", Case.getCurrentCase().getTempDirectory() ], obj)
+        ina_clock_end = time.clock()
+        return ina_clock_end - ina_clock_start
+
 def transcribeFiles(tmpAudioFiles, language, showTextSegmentStartTime, logObj):
         baseDir = os.path.dirname(os.path.realpath(__file__))
         args = [getExecInModule("deepspeech/deepspeech_csv"),
@@ -127,6 +138,25 @@ def transcribeFiles(tmpAudioFiles, language, showTextSegmentStartTime, logObj):
         "--scorer", baseDir + "/models/" + language + "/deepspeech.scorer"
         ] + ([] if showTextSegmentStartTime else ["-i"]) + tmpAudioFiles
         execSubprocess(args, logObj)
+
+def importTranscribedTextFiles(fileWavPathPairs, obj, factory, tagsManager, tagTranscribed):
+        results = []
+        for file, wavFile in fileWavPathPairs:
+                wavFileBase, _ = os.path.splitext(wavFile)
+                txtFile = wavFileBase + ".txt"
+                obj.log(Level.INFO, "importing text file: " + txtFile)
+                try:
+                        with codecs.open(txtFile, 'r', encoding="utf8") as txtFile2:
+                                txtContent = txtFile2.read()
+                                art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
+                                att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT, factory.moduleName, txtContent)
+                                art.addAttribute(att)
+                                indexArtifact(art, obj)
+                                tagsManager.addContentTag(file, tagTranscribed)
+                                results.append((file, txtContent))
+                except:
+                        obj.log(Level.INFO, "Could not open " + txtFile)
+        return results
 
 def makeLanguageSelectionComboBox(obj, value):
         modelsDir = os.path.dirname(os.path.realpath(__file__)) + "/models/"

@@ -257,21 +257,18 @@ class VadCheckModule(DataSourceIngestModule):
 
         tmpFiles = map(lambda x: x[1], filesForVoiceClassification)
         self.log(Level.INFO, "Files to classify speech/not speech:\n" + "\n".join(tmpFiles))
-        progressBar.progress(1)
+        progressBar.progress("Running voice activity detection on " + str(len(tmpFiles)) + " files. Be patient, this may take a while.", 1)
         #now run all files of interest through ina_speech_segmenter to detect voice activity
         try:
-            ina_clock_start = time.clock()
-            execSubprocess([
-                getExecInModule("ina_speech_segmenter/ina_speech_segmenter"),
-                "-i"] + tmpFiles + [
-                "-o", Case.getCurrentCase().getTempDirectory() ], self)
-            ina_clock_end = time.clock()
-            self.log(Level.INFO, "ina_speech_segmenter completed in " + str(ina_clock_end-ina_clock_start) + "s")
+            ina_run_time = runInaSpeechSegmener(tmpFiles, self)
+            self.log(Level.INFO, "ina_speech_segmenter completed in " + str(ina_run_time) + "s")
         except SubprocessError:
-            for file, tmpFile in filesForVoiceClassification:
-                addArtifact(file, "error")
+            #debug
+            #for file, tmpFile in filesForVoiceClassification:
+            #    addArtifact(file, "ina_speech_segmenter error")
+            return IngestModule.ProcessResult.ERROR
 
-        progressBar.progress(2)
+        progressBar.progress("Importing " + str(len(filesForVoiceClassification)) + "csv  files", 2)
         
         for file, tmpFile in filesForVoiceClassification:
             tmpFileBase, _ = os.path.splitext(tmpFile)
@@ -300,30 +297,18 @@ class VadCheckModule(DataSourceIngestModule):
                 ModuleDataEvent(VadCheckModuleFactory.moduleName,
                     BlackboardArtifact.ARTIFACT_TYPE.TSK_INTERESTING_FILE_HIT, None))
         
-        progressBar.progress(3)
+        progressBar.progress("Transcribing " + str(len(filesForDeepspeech)) + " files. Be patient, this may take a while.", 3)
 			
         if self.local_settings.runVadTranscriber and len(filesForDeepspeech) > 0:
             tmpFiles = map(lambda x: x[1], filesForDeepspeech)
             try:
                 #transcribe all files in one go
                 transcribeFiles(tmpFiles, self.local_settings.vadTranscriberLanguage, self.local_settings.showTextSegmentStartTime, self)
+                importTranscribedTextFiles(filesForDeepspeech, self, VadCheckModuleFactory,
+                                            tagsManager,  tagTranscribed)
             except SubprocessError:
                 self.log(Level.INFO, "deepspeech failed")
-
-            for file, wavFile in filesForDeepspeech:
-                wavFileBase, _ = os.path.splitext(wavFile)
-                txtFile = wavFileBase + ".txt"
-                self.log(Level.INFO, "importing text file: " + txtFile)
-                try:
-                    with codecs.open(txtFile, 'r', 'utf8') as txtFile2:
-                        txtContent = txtFile2.read()
-                        art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
-                        att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT, VadCheckModuleFactory.moduleName, txtContent.decode('utf-8'))
-                        art.addAttribute(att)
-                        indexArtifact(art, self)
-                        tagsManager.addContentTag(file, tagTranscribed)
-                except:
-                    self.log(Level.INFO, "Could not open " + txtFile)
+                return IngestModule.ProcessResult.ERROR
 
         end = time.clock()
         self.log(Level.INFO, "Vad_check_ingest completed in " + str(end-start) + "s")

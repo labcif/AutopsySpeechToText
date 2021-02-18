@@ -104,87 +104,97 @@ class SpeechToTextReportModule(GeneralReportModuleAdapter):
 
     # The 'baseReportDir' object being passed in is a string with the directory that reports are being stored in.   Report should go into baseReportDir + getRelativeFilePath().
     # The 'progressBar' object is of type ReportProgressPanel.
-    #   See: http://sleuthkit.org/autopsy/docs/api-docs/4.6.0/classorg_1_1sleuthkit_1_1autopsy_1_1report_1_1_report_progress_panel
+    #   See: https://www.sleuthkit.org/autopsy/docs/api-docs/4.17.0/classorg_1_1sleuthkit_1_1autopsy_1_1report_1_1_report_progress_panel.html
     def generateReport(self, settings, progressBar):
 
-            tagsManager = Case.getCurrentCase().getServices().getTagsManager()
-            
-            self.log(Level.INFO,"Starting ast report")
-           
-            tagTranscribe = getOrAddTag(tagsManager, "Transcribe")
-            tagTranscribed = getOrAddTag(tagsManager, "Transcribed")
-            
-            tagToUse = tagTranscribed if self.configPanel.radioButtonTranscribed.isSelected() else tagTranscribe
+        tagsManager = Case.getCurrentCase().getServices().getTagsManager()
+        
+        self.log(Level.INFO,"Starting ast report")
+        
+        tagTranscribe = getOrAddTag(tagsManager, "Transcribe")
+        tagTranscribed = getOrAddTag(tagsManager, "Transcribed")
+        
+        tagToUse = tagTranscribed if self.configPanel.radioButtonTranscribed.isSelected() else tagTranscribe
 
-            self.log(Level.INFO,"Using tag: " + str(tagToUse))
+        self.log(Level.INFO,"Using tag: " + str(tagToUse))
 
-            #all files tagged tag to use
-            files = tagsManager.getContentTagsByTagName(tagToUse)
+        #all files tagged tag to use
+        #returns ContentTag: http://sleuthkit.org/sleuthkit/docs/jni-docs/4.6.0/classorg_1_1sleuthkit_1_1datamodel_1_1_content_tag.html
+        # has method Content getContent ()
+        # Content: http://sleuthkit.org/sleuthkit/docs/jni-docs/4.6.0/interfaceorg_1_1sleuthkit_1_1datamodel_1_1_content.html
+        # in the ingest module an AbstractFile is used, which inherits from Content 
+        files = tagsManager.getContentTagsByTagName(tagToUse)
 
-            self.log(Level.INFO,"files: " + str(files))
+        self.log(Level.INFO,"files: " + str(files))
 
-            progressBar.setIndeterminate(False)
-            progressBar.updateStatusLabel("Now processing files. \n\n This may take a long time.") 
-            progressBar.start()
-            progressBar.setMaximumProgress(files.size())
+        progressBar.setIndeterminate(False)
+        progressBar.updateStatusLabel("Now processing files. \n\n This may take a long time.") 
+        progressBar.start()
+        progressBar.setMaximumProgress(3)
 
-            fileName = os.path.join(settings.getReportDirectoryPath(), self.getRelativeFilePath())
+        fileName = os.path.join(settings.getReportDirectoryPath(), self.getRelativeFilePath())
 
-            transcribedText = []
+        transcribedText = []
 
+
+        if  self.configPanel.radioButtonTranscribed.isSelected():
             for file in files:
-                try:
-                    content = file.getContent()
+                content = file.getContent()
+                artifacts = content.getArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
+                firstArtifact = artifacts[0]
+                outText = firstArtifact.getAttributes(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT)[0].getValueString()#.decode("utf-16")
+                transcribedText.append([content.getName(), content.getParentPath(), outText.splitlines()])
+        else:
+            progressBar.updateStatusLabel("Running voice activity detection on " + str(len(files)) + " files. Be patient, this may take a while.")
+            filesForDeepspeech = []
+            pathsForDeepspeech = []
+            for file in files:
+                content = file.getContent()
+                tmpPath = copyToTempFile(content)
+                audioFilePath = convertAudioTo16kHzWav(content, tmpPath, self)
+                filesForDeepspeech.append((file.getContent(), audioFilePath))
+                pathsForDeepspeech.append(audioFilePath)
+            try:
+                ina_run_time = runInaSpeechSegmener(pathsForDeepspeech, self)
+                self.log(Level.INFO, "ina_speech_segmenter completed in " + str (ina_run_time) + "s")
+                progressBar.updateStatusLabel("Transcribing " + str(len(files)) + " files. Be patient, this may take a while.")
+                language = self.configPanel.combo.getSelectedItem()
+                transcribeFiles(pathsForDeepspeech, language, True, self)
+            except SubprocessError:
+                self.log(Level.SEVERE, "Error transcribing files with deepspeech and inaSpeecSegmenter" )
+                progressBar.cancel()
+                return
 
-                    if  self.configPanel.radioButtonTranscribed.isSelected():
-                        artifacts = content.getArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
-                        firstArtifact = artifacts[0]
-                        outText = firstArtifact.getAttributes(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT)[0].getValueString()
-                        transcribedText.append([content.getName(), content.getParentPath(), outText.splitlines()])
-                    else:
-                        progressBar.updateStatusLabel("Transcribing file " + content.getName() + ". Be patient, this may take a while.")
-                        self.log(Level.INFO,"Transcribing file " + content.getName())
-                        
-                        tmpPath = copyToTempFile(content)
-                        
-                        audioFilePath = convertAudioTo16kHzWav(content, tmpPath, self)
+            transcribedText0 = importTranscribedTextFiles(filesForDeepspeech, self, 
+                    SpeechToTextReportModule, tagsManager,  tagTranscribed)
 
-                        language = self.configPanel.combo.getSelectedItem()
-                        
-                        outText = transcribeFile(content, audioFilePath, language, True, self, SpeechToTextReportModule.moduleName)                    
-                        
-                        tagsManager.addContentTag(content, tagTranscribed)
+            # Fire an event to notify the UI and others that there is a new artifact
+            # This will update the Results -> Extracted Content -> Extrected Text GUI item
+            IngestServices.getInstance().fireModuleDataEvent(
+                ModuleDataEvent(SpeechToTextReportModule.moduleName,
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT))
 
-                        # Fire an event to notify the UI and others that there is a new artifact
-                        # This will update the Results -> Extracted Content -> Extrected Text GUI item
-                        IngestServices.getInstance().fireModuleDataEvent(
-                            ModuleDataEvent(SpeechToTextReportModule.moduleName,
-                            BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT))
+            transcribedText = map(lambda (file, text):
+                [file.getName(), file.getParentPath(), text.splitlines()], transcribedText0)
+                
+        progressBar.increment()
 
-                        transcribedText.append([content.getName(), content.getParentPath(), outText.splitlines()])
-
-                except Exception as e:
-                    self.log(Level.SEVERE, "Error transcribing file: " + content.getName() +
-                                "\nError: " + e.__repr__() )
-                    
-                progressBar.increment()
-
-            if self.configPanel.radioButtonHTML.isSelected():
-                mytemplate = Template(htmlTemplate)
-                with open(fileName, 'w') as reportFile:
-                    reportFile.write(str(mytemplate.render(transcriptions=transcribedText)))
-                reportTitle = "Extracted text html"
-            else:
-                processedTranscribedText = map(lambda x: [x[0],x[1]," ".join(x[2]).replace("\n","")], transcribedText)
-                processedTranscribedText = [["filename", "directory", "transcribed text"]] + processedTranscribedText
-                self.log(Level.INFO, str(processedTranscribedText))
-                with open(fileName, mode='wb') as reportFile:
-                    csv_writer = csv.writer(reportFile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                    csv_writer.writerows(processedTranscribedText)
-                reportTitle = "Extracted text csv"
-            
-            Case.getCurrentCase().addReport(fileName, self.moduleName, reportTitle)
-            progressBar.complete()
+        if self.configPanel.radioButtonHTML.isSelected():
+            mytemplate = Template(htmlTemplate)
+            with open(fileName, 'w') as reportFile:
+                reportFile.write(mytemplate.render(transcriptions=transcribedText))
+            reportTitle = "Extracted text html"
+        else:
+            processedTranscribedText = map(lambda x: [x[0],x[1]," ".join(x[2]).replace("\n","")], transcribedText)
+            processedTranscribedText = [["filename", "directory", "transcribed text"]] + processedTranscribedText
+            self.log(Level.INFO, str(processedTranscribedText))
+            with open(fileName, mode='wb') as reportFile:
+                csv_writer = csv.writer(reportFile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                csv_writer.writerows(processedTranscribedText)
+            reportTitle = "Extracted text csv"
+        
+        Case.getCurrentCase().addReport(fileName, self.moduleName, reportTitle)
+        progressBar.complete()
     
     def getConfigurationPanel(self):
         self.configPanel = SpeechToTextReport_ConfigPanel()
