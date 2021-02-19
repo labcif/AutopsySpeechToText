@@ -200,7 +200,6 @@ bool ProcessArgs(int argc, char** argv)
     }
 
     for (int index = optind; index < argc; index++) {
-        printf ("Non-option argument %s\n", argv[index]);
         audio_list.push_back(argv[index]);
     }
 
