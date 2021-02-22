@@ -58,16 +58,16 @@ include(InstallRequiredSystemLibraries)
 
 #LIBDEEPSPEECH
 
+set(USE_CUDA "ON" 
+    CACHE FILEPATH "Whether to copy the cuda libraries")
+
+if(USE_CUDA)
+    set(CUDA_LIB_DIR "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin" CACHE FILEPATH "Location of cuda 10.1 dlls")
+    #message(${CUDA_SDK_ROOT_DIR})
+endif(USE_CUDA)
+
 set(LIBDEEPSPEECH_PATH "" 
     CACHE FILEPATH "Path to folder containing libdeepspeech.so and deepspeech.h files. It can be be obtained from native_client builds of deepspeech on github.")
-
-#on windows the .lib file is also needed.
-#I think this is in the same folder as .so
-#TODO IF .LIB IS THE SAME FOLDER AS .SO JUST USE THE SAME VARIABLE AND ADD THE FILE NAME
-if(WIN32)
-	set(LIBDEEPSPEECH_WIN_LIB_PATH "${CMAKE_SOURCE_DIR}/libraries/tensorflow/bazel-bin/native_client/libdeepspeech.so.if.lib"
-		CACHE FILEPATH "Path to the libdeepspeech.so.lib file required on Windows. By default it is configured to pick the file built from source using the deepspeech and tensorflow git submodules.")
-endif(WIN32)
 
 add_library(libdeepspeech SHARED IMPORTED)
 set_property(TARGET libdeepspeech PROPERTY IMPORTED_LOCATION ${LIBDEEPSPEECH_PATH}/libdeepspeech.so)    
@@ -117,14 +117,32 @@ install(DIRECTORY autopsy_modules/speech_modules
 #deepspeech_csv
 install(TARGETS deepspeech_csv DESTINATION speech_modules/bin/deepspeech)
 
-#libdeepspeech.so 
+#libdeepspeech.so
 install(FILES "${LIBDEEPSPEECH_PATH}/libdeepspeech.so" DESTINATION speech_modules/bin/deepspeech)
+#cuda libraries
+if(WIN32)
+    install(FILES "${CUDA_LIB_DIR}/cudart64_101.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cublasLt64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cublas64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cufft64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/curand64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cusolver64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cusparse64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cudnn64_7.dll" DESTINATION speech_modules/bin/deepspeech)
+endif(WIN32)
 
 #inaSpeechSegmenter binary
 set(INA_SPEECH_SEGMENTER_BUNDLE "${CMAKE_SOURCE_DIR}/out/dist/ina_speech_segmenter"
         CACHE PATH "Path to the inaSpeechSegmenter bundle generated with pyinstaller")
 install(DIRECTORY "${INA_SPEECH_SEGMENTER_BUNDLE}/" DESTINATION speech_modules/bin/ina_speech_segmenter)
-
+#cuda libraries
+if(WIN32)
+    install(FILES "${CUDA_LIB_DIR}/cudart64_101.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cublas64_10.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cublasLt64_10.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cusparse64_10.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cudnn64_7.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+endif(WIN32)
 if (UNIX)
 install(FILES
     "${CMAKE_SOURCE_DIR}/out/dist/ina_speech_segmenter/ina_speech_segmenter"
