@@ -72,7 +72,7 @@ endif(WIN32)
 add_library(libdeepspeech SHARED IMPORTED)
 set_property(TARGET libdeepspeech PROPERTY IMPORTED_LOCATION ${LIBDEEPSPEECH_PATH}/libdeepspeech.so)    
 if(WIN32)
-    set_property(TARGET libdeepspeech PROPERTY IMPORTED_IMPLIB ${LIBDEEPSPEECH_WIN_LIB_PATH})
+    set_property(TARGET libdeepspeech PROPERTY IMPORTED_IMPLIB ${LIBDEEPSPEECH_PATH}/libdeepspeech.so.if.lib)
 endif(WIN32)
 # needed for deepspeech.h
 target_include_directories(libdeepspeech INTERFACE
@@ -91,7 +91,9 @@ add_executable(deepspeech_csv ${deepspeech_csv_sources})
     #target_link_libraries(deepspeech_csv webrtc)
 target_link_libraries(deepspeech_csv libdeepspeech)
 #files should already be 16kHz mono 16bit PCM Wav
+if(UNIX)
 target_compile_definitions(deepspeech_csv PUBLIC NO_SOX)
+endif(UNIX) 
 
 #For debugging the CSV segmentation:
 #In that case Sox is required, so comment above
@@ -158,7 +160,7 @@ install(FILES
 
 #Install microsoft runtime
 if(WIN32)
-    INSTALL(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} DESTINATION speech_modules/bin COMPONENT Libraries)
+    INSTALL(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} DESTINATION speech_modules/bin/deepspeech COMPONENT Libraries)
 endif()
 
 set(CPACK_OUTPUT_FILE_PREFIX "")
