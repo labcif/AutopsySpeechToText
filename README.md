@@ -90,10 +90,9 @@ cd out
 python -m venv inaSpeechSegmenterEnv
 inaSpeechSegmenterEnv\Scripts\activate
 python -m pip install -U pip  #update pip
-pip install pyinstaller
-pip install matplotlib==3.2.0
 pip install torchvision===0.8.2 -f https://download.pytorch.org/whl/torch_stable.html #this version for windows is not on pypy
 pip install -r requirements.txt #can also do pip install tensorflow==2.3.2 and it might work, but requirments.txt has all package versions pinned.
+pip install -U matplotlib==3.2.0
 pip install ..\python\inaSpeechSegmenter
 pyinstaller ..\python\ina_speech_segmenter.spec
 ```
