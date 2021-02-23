@@ -58,13 +58,14 @@ include(InstallRequiredSystemLibraries)
 
 #LIBDEEPSPEECH
 
+if(WIN32)
 set(USE_CUDA "ON" 
     CACHE FILEPATH "Whether to copy the cuda libraries")
 
 if(USE_CUDA)
-    set(CUDA_LIB_DIR "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin" CACHE FILEPATH "Location of cuda 10.1 dlls")
-    #message(${CUDA_SDK_ROOT_DIR})
+    set(CUDA_LIB_DIR "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin" CACHE FILEPATH "Location of cuda 10.1 dlls on Windows")
 endif(USE_CUDA)
+endif(WIN32)
 
 set(LIBDEEPSPEECH_PATH "" 
     CACHE FILEPATH "Path to folder containing libdeepspeech.so and deepspeech.h files. It can be be obtained from native_client builds of deepspeech on github.")
