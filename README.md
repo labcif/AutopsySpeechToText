@@ -125,9 +125,7 @@ cd out
 python3 -m venv inaSpeechSegmenterEnv
 source inaSpeechSegmenterEnv/bin/activate
 python -m pip install -U pip  #update pip
-pip install pyinstaller #use local version of pyinstaller
 pip install -r requirements.txt
-#if you have a GPU supported by tensorflow then change tensorflow to tensorflow-gpu in the requirements.txt file
 pip install ../python/inaSpeechSegmenter
 pyinstaller ../python/ina_speech_segmenter.spec
 ```

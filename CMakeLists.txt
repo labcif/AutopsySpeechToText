@@ -15,46 +15,10 @@ SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:\$ORIGIN")
 
 include(InstallRequiredSystemLibraries)
 
-            # EXTERNAL LIBRARIES
 
-            #PTHREADS
-            #set(THREADS_PREFER_PTHREAD_FLAG ON)
-            #find_package(Threads REQUIRED)
-
-            #WEBRTC
-            # add_library(webrtc STATIC
-            #     libraries/webrtc-src/common_audio/vad/vad_core.c
-            #     libraries/webrtc-src/common_audio/vad/vad_gmm.c
-            #     libraries/webrtc-src/common_audio/vad/webrtc_vad.c
-            #     libraries/webrtc-src/common_audio/vad/vad_filterbank.c  
-            #     libraries/webrtc-src/common_audio/vad/vad_sp.c
-            #     libraries/webrtc-src/common_audio/vad/vad.cc
-            #     libraries/webrtc-src/common_audio/signal_processing/division_operations.c
-            #     libraries/webrtc-src/common_audio/signal_processing/energy.c
-            #     libraries/webrtc-src/common_audio/signal_processing/get_scaling_square.c
-            #     libraries/webrtc-src/common_audio/signal_processing/resample_48khz.c
-            #     libraries/webrtc-src/common_audio/signal_processing/resample_by_2_internal.c
-            #     libraries/webrtc-src/common_audio/signal_processing/resample_fractional.c
-            #     libraries/webrtc-src/common_audio/signal_processing/spl_inl.c
-            #     libraries/webrtc-src/common_audio/signal_processing/spl_init.c
-            #     libraries/webrtc-src/common_audio/signal_processing/min_max_operations.c
-            #     libraries/webrtc-src/common_audio/signal_processing/cross_correlation.c
-            #     libraries/webrtc-src/common_audio/signal_processing/downsample_fast.c
-            #     libraries/webrtc-src/common_audio/signal_processing/vector_scaling_operations.c
-            #     libraries/webrtc-src/rtc_base/checks.cc
-            # )
-
-            # if(UNIX)
-            #     target_compile_definitions(webrtc PRIVATE WEBRTC_POSIX)
-            # endif(UNIX)
-
-            # if(WIN32)
-            #     target_compile_definitions(webrtc PRIVATE WEBRTC_WIN)
-            # endif(WIN32)
-
-            # target_include_directories(webrtc PUBLIC
-            #     "${CMAKE_SOURCE_DIR}/libraries/webrtc-src"
-            #     "${CMAKE_SOURCE_DIR}/libraries/abseil-cpp")
+#PTHREADS
+#set(THREADS_PREFER_PTHREAD_FLAG ON)
+#find_package(Threads REQUIRED)
 
 #LIBDEEPSPEECH
 
@@ -88,12 +52,11 @@ set(deepspeech_csv_sources
     src/deepspeech_csv/main.cc
 )
 add_executable(deepspeech_csv ${deepspeech_csv_sources})
-    #target_link_libraries(deepspeech_csv Threads::Threads)
-    #target_link_libraries(deepspeech_csv webrtc)
+#target_link_libraries(deepspeech_csv Threads::Threads)
 target_link_libraries(deepspeech_csv libdeepspeech)
 #files should already be 16kHz mono 16bit PCM Wav
 if(UNIX)
-target_compile_definitions(deepspeech_csv PUBLIC NO_SOX)
+    target_compile_definitions(deepspeech_csv PUBLIC NO_SOX)
 endif(UNIX) 
 
 #For debugging the CSV segmentation:

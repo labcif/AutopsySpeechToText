@@ -1,3 +1,7 @@
+#ifdef NDEBUG /* N.B. assert used with active statements so enable always. */
+#undef NDEBUG /* Must undef above assert.h or other that might include it. */
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -39,10 +43,6 @@
 
 #include "deepspeech.h"
 #include "args.h"
-
-#ifdef NDEBUG /* N.B. assert used with active statements so enable always. */
-#undef NDEBUG /* Must undef above assert.h or other that might include it. */
-#endif
 
 typedef struct {
   const char* string;
@@ -372,6 +372,14 @@ SaveBufferSegmentToDisk(ds_audio_buffer audio, size_t segment_start, size_t segm
   sox_close(input);
 
 }
+
+void
+SaveBufferSegmentToDisk2(ds_audio_buffer audio, size_t segment_start, size_t segment_bytes, const char *filepath)
+{
+  FILE * f = fopen(filepath, "w");
+  fwrite(audio.buffer+segment_start, 1, segment_bytes, f);
+  fclose(f);
+}
 #endif
 
 //could be changed to variable later
@@ -397,7 +405,6 @@ typedef struct
   char chunk_id[4];
   uint32_t chunk_size;
 } WavChunk;
-
 
 //https://www.recordingblogs.com/wiki/format-chunk-of-a-wave-file
 struct chunk_t
@@ -466,13 +473,16 @@ GetAudioBuffer(const char *path)
   }
 
   fclose(wave);
-
+  // FILE * f = fopen("/tmp/testaudio.wav", "w");
+  // fwrite(res.buffer, 1, res.buffer_size, f);
+  // fclose(f);
   return res;
 }
 
-int
+size_t
 secondsToNumBytes(float secs, int sample_rate) {
-  return sample_rate * secs * 2;
+  size_t samples = sample_rate * secs; //must convert to size_t before multiplying by two.
+  return samples * 2;
 }
 
 void
@@ -564,8 +574,9 @@ ProcessFile(ModelState* context, const char* path, bool show_times)
 
       #ifdef CSV_DEBUG
       std::cout << "extra_time_at_start: " << extra_time_at_start << " extra_time_at_end: " << extra_time_at_end 
-      << "final_segment_start: " << final_segment_start << "final_segment_end: " <<  final_segment_start + final_segment_size << std::endl;
-      SaveBufferSegmentToDisk(audio, 
+      << "final_segment_start: " << final_segment_start << "final_segment_end: " <<  final_segment_start + final_segment_size
+      << "start_bytes" << start_bytes << "endbytes " << (segment_samples * num_bytes_per_sample) << std::endl;
+      SaveBufferSegmentToDisk2(audio, 
                               start_bytes, 
                               segment_samples * num_bytes_per_sample,
                               segment_path.str().c_str());

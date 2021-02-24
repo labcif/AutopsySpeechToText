@@ -136,7 +136,7 @@ def transcribeFiles(tmpAudioFiles, language, showTextSegmentStartTime, logObj):
         args = [getExecInModule("deepspeech/deepspeech_csv"),
         "--model", baseDir + "/models/" + language + "/deepspeech.pbmm",
         "--scorer", baseDir + "/models/" + language + "/deepspeech.scorer"
-        ] + ([] if showTextSegmentStartTime else ["-i"]) + tmpAudioFiles
+        ] + ([] if showTextSegmentStartTime else ["--hide_segment_time"]) + tmpAudioFiles
         execSubprocess(args, logObj)
 
 def importTranscribedTextFiles(fileWavPathPairs, obj, factory, tagsManager, tagTranscribed):
