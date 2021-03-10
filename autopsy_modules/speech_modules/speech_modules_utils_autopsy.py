@@ -26,6 +26,8 @@ from org.sleuthkit.autopsy.casemodule import Case
 from org.sleuthkit.datamodel import BlackboardArtifact
 from org.sleuthkit.datamodel import BlackboardAttribute
 
+from java.util.concurrent import Executors, Callable
+from java.lang import Runtime
 
 #python
 import os
@@ -106,6 +108,24 @@ def convertAudioTo16kHzWav(file, tmpPath, logObj):
                         ], logObj)
         return tmpWav
 
+class RunFFMpeg(Callable):
+    def __init__(self, file, tmpPath, logObj):
+        self.file = file
+        self.tmpPath = tmpPath
+        self.logObj = logObj
+
+    # needed to implement the Callable interface;
+    # any exceptions will be wrapped as either ExecutionException
+    # or InterruptedException
+    def call(self):
+        convertAudioTo16kHzWav(self.file, self.tmpPath, self.logObj)
+        return self
+
+def convertAudioFilesTo16kHzWav(list, logObj):
+        pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
+        pool.invokeAll(map(lambda tuple: RunFFMpeg(tuple[0], tuple[1], logObj),list))
+        pool.shutdownNow()
+
 def avfileHasAudioStreams(audioFile, logObj):
         stdout, _ = execSubprocess([
                 getExecInModuleIfInWindows("ffprobe"),
@@ -121,6 +141,8 @@ def getAVFileDuration(audioFile, logObj):
                             audioFile,
                             ], logObj)
         return float(stdout)
+
+
 
 def runInaSpeechSegmener(files, obj):
         ina_clock_start = time.clock()
