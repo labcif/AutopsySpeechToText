@@ -94,15 +94,13 @@ import subprocess
 #delete
 import time
 
-from speech_modules_utils_autopsy import * #SubprocessError, getExecInModule, copyToTempFile, fileIsAudio, fileIsVideo, execSubprocess, getExecInModuleIfInWindows, transcribeFile, makeLanguageSelectionComboBox
+from speech_modules_utils_autopsy import *
 from process_inaSpeechSegmenter import processInaSpeechSegmenterCSV
 
 class RunProcessAVFile(Callable):
     def __init__(self, file, minTotalVoiced, logObj):
         self.file = file
-        #self.filesForVoiceClassification = filesForVoiceClassification
         self.minTotalVoiced = minTotalVoiced
-        #self.lock = lock
         self.logObj = logObj
 
     # needed to implement the Callable interface;
@@ -135,7 +133,7 @@ class RunProcessAVFile(Callable):
             if not avfileHasAudioStreams(tmpFile, self.logObj):
                 self.logObj.logObj.log(Level.INFO, "audio/video file with no audio streams: " + self.file.getName() )
                 addArtifact(self.file, "audio/video file with no audio stream")
-
+                return None
             
             #get duration of audio/video file
             duration = getAVFileDuration(tmpFile, self.logObj)
@@ -275,48 +273,8 @@ class VadCheckModule(DataSourceIngestModule):
         numFiles = len(files)
         self.log(Level.INFO, "found " + str(numFiles) + " files")
         progressBar.switchToDeterminate(4)
-        
-        #filesForVoiceClassification = []
-        
-        
-        # for file in files:
-        #     #try:
-        #     self.log(Level.INFO, "Processing file: " + file.getName())
-            
-        #     # Skip non-files
-        #     if ((file.getType() != TskData.TSK_DB_FILES_TYPE_ENUM.UNALLOC_BLOCKS) and
-        #         (file.getType() != TskData.TSK_DB_FILES_TYPE_ENUM.UNUSED_BLOCKS) and
-        #         (file.isFile()) and
-        #         (fileIsAudio(file) or fileIsVideo(file))):
-
-        #         self.log(Level.INFO, "Found an audio/video file: " + file.getName())
-                
-        #         tmpFile = copyToTempFile(file)
-
-        #         #check if audio/video file has audio streams
-        #         if not avfileHasAudioStreams(tmpFile, self):
-        #             self.log(Level.INFO, "audio/video file with no audio streams: " + file.getName() )
-        #             addArtifact(file, "audio/video file with no audio stream")
-
-        #         #get duration of audio/video file
-        #         duration = getAVFileDuration(tmpFile, self)
-        #         self.log(Level.INFO, file.getName() + " has duration " + str(duration))
-
-        #         if (duration < self.local_settings.minTotalVoiced):
-        #             self.log(Level.INFO, "Audio file " + file.getName() + " too short.")
-        #             addArtifact(file, "duration too short")
-        #             continue
-
-        #         #convert audio/video file to wav file 16bit at 16kHz
-        #         #tmpWav = convertAudioTo16kHzWav(file, tmpFile, self)
-
-        #         filesForFfmpeg.append((file, tmpFile))
-        #         filesForVoiceClassification.append((file, tmpFile + ".wav"))
-        #     #except SubprocessError:
-        #         #continue
 
         ffmpeg_clock_start = time.clock()
-        #lock = Lock()
         pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
         futures = pool.invokeAll(map(lambda file: RunProcessAVFile(file, self.local_settings.minTotalVoiced, self), files))
         pool.shutdownNow()
