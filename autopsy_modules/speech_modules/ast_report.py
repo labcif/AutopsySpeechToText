@@ -33,6 +33,7 @@ import platform
 import wave
 from mako.template import Template
 import csv
+import codecs
 #import mako.template import Template
 
 #Autopsy
@@ -158,7 +159,7 @@ class SpeechToTextReportModule(GeneralReportModuleAdapter):
                 content = file.getContent()
                 artifacts = content.getArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
                 firstArtifact = artifacts[0]
-                outText = firstArtifact.getAttributes(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT)[0].getValueString()#.decode("utf-16")
+                outText = firstArtifact.getAttributes(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT)[0].getValueString()
                 transcribedText.append([content.getName(), content.getParentPath(), outText.splitlines()])
         else:
             progressBar.updateStatusLabel("Running voice activity detection on " + str(len(files)) + " files. Be patient, this may take a while.")
@@ -198,7 +199,7 @@ class SpeechToTextReportModule(GeneralReportModuleAdapter):
 
         if self.configPanel.radioButtonHTML.isSelected():
             mytemplate = Template(htmlTemplate)
-            with open(fileName, 'w') as reportFile:
+            with codecs.open(fileName, 'w', encoding='utf-8') as reportFile:
                 reportFile.write(mytemplate.render(transcriptions=transcribedText))
             reportTitle = "Extracted text html"
         else:
@@ -207,7 +208,9 @@ class SpeechToTextReportModule(GeneralReportModuleAdapter):
             self.log(Level.INFO, str(processedTranscribedText))
             with open(fileName, mode='wb') as reportFile:
                 csv_writer = csv.writer(reportFile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                csv_writer.writerows(processedTranscribedText)
+                #deal with utf
+                for row in processedTranscribedText:
+                    csv_writer.writerows([[s.encode('utf-8') for s in row]])
             reportTitle = "Extracted text csv"
         
         Case.getCurrentCase().addReport(fileName, self.moduleName, reportTitle)

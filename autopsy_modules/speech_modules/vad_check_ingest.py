@@ -288,7 +288,9 @@ class VadCheckModule(DataSourceIngestModule):
 
         tmpFiles = map(lambda x: x[1], filesForVoiceClassification)
         self.log(Level.INFO, "Files to classify speech/not speech:\n" + "\n".join(tmpFiles))
-        progressBar.progress("Running voice activity detection on " + str(len(tmpFiles)) + " files. Be patient, this may take a while.", 1)
+        #progressBar.progress("Running voice activity detection on " + str(len(tmpFiles)) + " files. Be patient, this may take a while.", 1)
+        f = codecs.open("/home/miguel/Development/IPL/investigacao/teste_sons/voice/test_script2/out/ch.mp3.txt", encoding='utf-8')
+        progressBar.progress(f.read())
         #now run all files of interest through ina_speech_segmenter to detect voice activity
         try:
             ina_run_time = runInaSpeechSegmener(tmpFiles, self)
@@ -312,17 +314,18 @@ class VadCheckModule(DataSourceIngestModule):
                     (total_voiced > self.local_settings.minTotalVoiced)):
                 self.log(Level.INFO, "Found an audio file with speech: " + file.getName())         
                 
-                addArtifact(file, "Audio files with speech")    
+                addArtifact(file, "Audio file with speech")    
                 if total_male > 0:
-                    addArtifact(file, "Audio files with speech - male")
+                    addArtifact(file, "Audio file with speech - male")
                 if total_female > 0:
-                    addArtifact(file, "Audio files with speech - female")
+                    addArtifact(file, "Audio file with speech - female")
 
                 filesForDeepspeech.append((file, tmpFile))
             else:
                 self.log(Level.INFO, "Audio file " + file.getName() + "doesn't match conditions. perc_voiced_frames = " + str(perc_voiced_frames)+
                     "total_voiced = " + str(total_voiced))
-                addArtifact(file, "not respecting conditions")
+                #debug
+                #addArtifact(file, "not respecting conditions")
 
             # Fire an event to notify the UI and others that there is a new artifact
             IngestServices.getInstance().fireModuleDataEvent(
@@ -340,7 +343,7 @@ class VadCheckModule(DataSourceIngestModule):
                 importTranscribedTextFiles(filesForDeepspeech, self, VadCheckModuleFactory,
                                             tagsManager,  tagTranscribed)
                 deepspeech_clock_end = time.clock()
-                self.log(Level.INFO, "deepspeech comepleted in " + str(deepspeech_clock_end - deepspeech_clock_start) + "s")
+                self.log(Level.INFO, "deepspeech completed in " + str(deepspeech_clock_end - deepspeech_clock_start) + "s")
             except SubprocessError:
                 self.log(Level.INFO, "deepspeech failed")
                 return IngestModule.ProcessResult.ERROR
@@ -401,9 +404,9 @@ class VadCheckModuleSettingsPanel(IngestModuleIngestJobSettingsPanel):
         self.setLayout(BoxLayout(self, BoxLayout.Y_AXIS))
 
         self.label2 = JLabel()
-        self.label2.setText("Minimum percentage voiced frames")
+        self.label2.setText("Minimum percentage of segments with speech")
         self.label3 = JLabel()
-        self.label3.setText("Minimum total duration of voiced frames (s)")
+        self.label3.setText("Minimum total duration of segment with speech (s)")
 
         #sliderGetAction = lambda slider: slider.getValue()
         self.minPercVoiced = JSlider()#stateChanged=self.makeGuiCallback("minPercVoiced", sliderGetAction))
