@@ -15,64 +15,29 @@ SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}:\$ORIGIN")
 
 include(InstallRequiredSystemLibraries)
 
-            # EXTERNAL LIBRARIES
 
-            #PTHREADS
-            #set(THREADS_PREFER_PTHREAD_FLAG ON)
-            #find_package(Threads REQUIRED)
-
-            #WEBRTC
-            # add_library(webrtc STATIC
-            #     libraries/webrtc-src/common_audio/vad/vad_core.c
-            #     libraries/webrtc-src/common_audio/vad/vad_gmm.c
-            #     libraries/webrtc-src/common_audio/vad/webrtc_vad.c
-            #     libraries/webrtc-src/common_audio/vad/vad_filterbank.c  
-            #     libraries/webrtc-src/common_audio/vad/vad_sp.c
-            #     libraries/webrtc-src/common_audio/vad/vad.cc
-            #     libraries/webrtc-src/common_audio/signal_processing/division_operations.c
-            #     libraries/webrtc-src/common_audio/signal_processing/energy.c
-            #     libraries/webrtc-src/common_audio/signal_processing/get_scaling_square.c
-            #     libraries/webrtc-src/common_audio/signal_processing/resample_48khz.c
-            #     libraries/webrtc-src/common_audio/signal_processing/resample_by_2_internal.c
-            #     libraries/webrtc-src/common_audio/signal_processing/resample_fractional.c
-            #     libraries/webrtc-src/common_audio/signal_processing/spl_inl.c
-            #     libraries/webrtc-src/common_audio/signal_processing/spl_init.c
-            #     libraries/webrtc-src/common_audio/signal_processing/min_max_operations.c
-            #     libraries/webrtc-src/common_audio/signal_processing/cross_correlation.c
-            #     libraries/webrtc-src/common_audio/signal_processing/downsample_fast.c
-            #     libraries/webrtc-src/common_audio/signal_processing/vector_scaling_operations.c
-            #     libraries/webrtc-src/rtc_base/checks.cc
-            # )
-
-            # if(UNIX)
-            #     target_compile_definitions(webrtc PRIVATE WEBRTC_POSIX)
-            # endif(UNIX)
-
-            # if(WIN32)
-            #     target_compile_definitions(webrtc PRIVATE WEBRTC_WIN)
-            # endif(WIN32)
-
-            # target_include_directories(webrtc PUBLIC
-            #     "${CMAKE_SOURCE_DIR}/libraries/webrtc-src"
-            #     "${CMAKE_SOURCE_DIR}/libraries/abseil-cpp")
+#PTHREADS
+#set(THREADS_PREFER_PTHREAD_FLAG ON)
+#find_package(Threads REQUIRED)
 
 #LIBDEEPSPEECH
+
+if(WIN32)
+set(USE_CUDA "ON" 
+    CACHE FILEPATH "Whether to copy the cuda libraries")
+
+if(USE_CUDA)
+    set(CUDA_LIB_DIR "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/bin" CACHE FILEPATH "Location of cuda 10.1 dlls on Windows")
+endif(USE_CUDA)
+endif(WIN32)
 
 set(LIBDEEPSPEECH_PATH "" 
     CACHE FILEPATH "Path to folder containing libdeepspeech.so and deepspeech.h files. It can be be obtained from native_client builds of deepspeech on github.")
 
-#on windows the .lib file is also needed.
-#I think this is in the same folder as .so
-#TODO IF .LIB IS THE SAME FOLDER AS .SO JUST USE THE SAME VARIABLE AND ADD THE FILE NAME
-if(WIN32)
-	set(LIBDEEPSPEECH_WIN_LIB_PATH "${CMAKE_SOURCE_DIR}/libraries/tensorflow/bazel-bin/native_client/libdeepspeech.so.if.lib"
-		CACHE FILEPATH "Path to the libdeepspeech.so.lib file required on Windows. By default it is configured to pick the file built from source using the deepspeech and tensorflow git submodules.")
-endif(WIN32)
-
 add_library(libdeepspeech SHARED IMPORTED)
 set_property(TARGET libdeepspeech PROPERTY IMPORTED_LOCATION ${LIBDEEPSPEECH_PATH}/libdeepspeech.so)    
 if(WIN32)
-    set_property(TARGET libdeepspeech PROPERTY IMPORTED_IMPLIB ${LIBDEEPSPEECH_WIN_LIB_PATH})
+    set_property(TARGET libdeepspeech PROPERTY IMPORTED_IMPLIB ${LIBDEEPSPEECH_PATH}/libdeepspeech.so.if.lib)
 endif(WIN32)
 # needed for deepspeech.h
 target_include_directories(libdeepspeech INTERFACE
@@ -87,11 +52,12 @@ set(deepspeech_csv_sources
     src/deepspeech_csv/main.cc
 )
 add_executable(deepspeech_csv ${deepspeech_csv_sources})
-    #target_link_libraries(deepspeech_csv Threads::Threads)
-    #target_link_libraries(deepspeech_csv webrtc)
+#target_link_libraries(deepspeech_csv Threads::Threads)
 target_link_libraries(deepspeech_csv libdeepspeech)
 #files should already be 16kHz mono 16bit PCM Wav
-target_compile_definitions(deepspeech_csv PUBLIC NO_SOX)
+if(UNIX)
+    target_compile_definitions(deepspeech_csv PUBLIC NO_SOX)
+endif(UNIX) 
 
 #For debugging the CSV segmentation:
 #In that case Sox is required, so comment above
@@ -115,14 +81,32 @@ install(DIRECTORY autopsy_modules/speech_modules
 #deepspeech_csv
 install(TARGETS deepspeech_csv DESTINATION speech_modules/bin/deepspeech)
 
-#libdeepspeech.so 
+#libdeepspeech.so
 install(FILES "${LIBDEEPSPEECH_PATH}/libdeepspeech.so" DESTINATION speech_modules/bin/deepspeech)
+#cuda libraries
+if(WIN32)
+    install(FILES "${CUDA_LIB_DIR}/cudart64_101.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cublasLt64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cublas64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cufft64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/curand64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cusolver64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cusparse64_10.dll" DESTINATION speech_modules/bin/deepspeech)
+    install(FILES "${CUDA_LIB_DIR}/cudnn64_7.dll" DESTINATION speech_modules/bin/deepspeech)
+endif(WIN32)
 
 #inaSpeechSegmenter binary
 set(INA_SPEECH_SEGMENTER_BUNDLE "${CMAKE_SOURCE_DIR}/out/dist/ina_speech_segmenter"
         CACHE PATH "Path to the inaSpeechSegmenter bundle generated with pyinstaller")
 install(DIRECTORY "${INA_SPEECH_SEGMENTER_BUNDLE}/" DESTINATION speech_modules/bin/ina_speech_segmenter)
-
+#cuda libraries
+if(WIN32)
+    install(FILES "${CUDA_LIB_DIR}/cudart64_101.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cublas64_10.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cublasLt64_10.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cusparse64_10.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+    install(FILES "${CUDA_LIB_DIR}/cudnn64_7.dll" DESTINATION speech_modules/bin/ina_speech_segmenter)
+endif(WIN32)
 if (UNIX)
 install(FILES
     "${CMAKE_SOURCE_DIR}/out/dist/ina_speech_segmenter/ina_speech_segmenter"
@@ -158,7 +142,7 @@ install(FILES
 
 #Install microsoft runtime
 if(WIN32)
-    INSTALL(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} DESTINATION speech_modules/bin COMPONENT Libraries)
+    INSTALL(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} DESTINATION speech_modules/bin/deepspeech COMPONENT Libraries)
 endif()
 
 set(CPACK_OUTPUT_FILE_PREFIX "")

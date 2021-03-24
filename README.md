@@ -2,7 +2,7 @@
 
 # Autopsy version
 
-Compatible with Autopsy version 4.16.0
+Compatible with Autopsy version 4.17.0
 
 # Installation
 
@@ -29,21 +29,14 @@ Compatible with Autopsy version 4.16.0
 - Installing additional language models.
     - Additional language models can be installed in the `speech_modules/modules` folder.
     - Create a folder with the name of the language, i.e. `speech_modules/modules/french`.
-    - The model must have been created with deepspeech v0.6.1.
+    - The model must have been created with deepspeech v0.9.3.
     - The files must be named:
-        - lm.binary
-        - output_graph.pb
-        - trie
+        - deepspeech.pbmm
+        - deepspeech.scorer
    
  - Note that the plugin requires a large ammount of available memory. Close all other programs to run the plugin.  
 
 # Development
-
-The repository contains several git submodules. The deepspeech git submodule contains very large data files tracked by git lfs which are not needed. The command below will avoid downloading those files.
-
-```
-GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/miguel-negrao/AutopsySpeechToText.git
-```
 
 # Dependencies
 
@@ -51,7 +44,7 @@ GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/miguel-n
 
 - download deepspeech models from [here](https://github.com/mozilla/DeepSpeech/releases/download/v0.6.1/deepspeech-0.6.1-models.tar.gz).
 - Download `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` from [here](https://github.com/mozilla/DeepSpeech/releases/tag/v0.6.1). 
-- To use the GPU version of tensorflow, CUDA 10.0 and CuDNN 7.5 for CUDA 10.0 must be installed in the system.
+- To use the GPU version of tensorflow, CUDA 10.1 runtime and CuDNN 7.6.5 for CUDA 10.1 must be installed in the system.
 
 
 ## Windows
@@ -77,13 +70,14 @@ GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/miguel-n
 ### Directory structure
 
 - autopsy_speech_modules
-- deepspeech-0.6.1-models
+- deepspeech-0.9.3-english-models
+- deepspeech-0.9.3-chinese-models
 
 ## Windows
 
 To create the full autopsy module.
 
-Set the `LIBDEEPSPEECH_PATH` cmake variable to the path of `libdeepspeech.so` from `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` using cmake-gui.
+Set the `LIBDEEPSPEECH_PATH` cmake variable to the path of folder containing `libdeepspeech.so` from `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` using cmake-gui.
 
 Create the inaSpeechSegmenter executable.
 
@@ -95,13 +89,15 @@ mkdir out
 cd out
 python -m venv inaSpeechSegmenterEnv
 inaSpeechSegmenterEnv\Scripts\activate
-#if you have a GPU supported by tensorflow then change tensorflow to tensorflow-gpu in the requirements.txt file
-pip install -r requirements.txt
+python -m pip install -U pip  #update pip
+pip install torchvision===0.8.2 -f https://download.pytorch.org/whl/torch_stable.html #this version for windows is not on pypy
+pip install -r requirements.txt #can also do pip install tensorflow==2.3.2 and it might work, but requirments.txt has all package versions pinned.
+pip install -U matplotlib==3.2.0
 pip install ..\python\inaSpeechSegmenter
-pyinstaller --add-data "..\python\inaSpeechSegmenter\inaSpeechSegmenter\keras_male_female_cnn.hdf5;inaSpeechSegmenter" --add-data "..\python\inaSpeechSegmenter\inaSpeechSegmenter\keras_speech_music_cnn.hdf5;inaSpeechSegmenter" ..\python\inaSpeechSegmenter\scripts\ina_speech_segmenter.py
+pyinstaller ..\python\ina_speech_segmenter.spec
 ```
 
-Build vad_transcriber executable.
+Build deepspeech_csv executable.
 
 Run in the  windows command prompt:
 
@@ -118,7 +114,7 @@ The autopsy module will be the directory build/speech_modules which should be co
 
 To create the full autopsy module:
 
-Set the `LIBDEEPSPEECH_PATH` cmake variable to the path of `libdeepspeech.so` from `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` using ccmake.
+Set the `LIBDEEPSPEECH_PATH` cmake variable to the path of the folder containing `libdeepspeech.so` from `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` using ccmake.
 
 Create the inaSpeechSegmenter executable:
 
@@ -128,11 +124,9 @@ mkdir out
 cd out
 python3 -m venv inaSpeechSegmenterEnv
 source inaSpeechSegmenterEnv/bin/activate
-pip install --upgrade pip
+python -m pip install -U pip  #update pip
 pip install -r requirements.txt
-#if you have a GPU supported by tensorflow then change tensorflow to tensorflow-gpu in the requirements.txt file
 pip install ../python/inaSpeechSegmenter
-pip install pyinstaller
 pyinstaller ../python/ina_speech_segmenter.spec
 ```
 
