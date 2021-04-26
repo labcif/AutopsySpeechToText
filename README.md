@@ -1,5 +1,7 @@
 # Autopsy Speech Detection and Automatic Transcription Modules
 
+version: 0.2.0
+
 # Autopsy version
 
 Compatible with Autopsy version 4.17.0
@@ -42,8 +44,8 @@ Compatible with Autopsy version 4.17.0
 
 ## Common
 
-- download deepspeech models from [here](https://github.com/mozilla/DeepSpeech/releases/download/v0.6.1/deepspeech-0.6.1-models.tar.gz).
-- Download `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` from [here](https://github.com/mozilla/DeepSpeech/releases/tag/v0.6.1). 
+- download deepspeech models from [here](https://github.com/mozilla/DeepSpeech/releases/tag/v0.9.3).
+- Download `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` from [here](https://github.com/mozilla/DeepSpeech/releases/tag/v0.9.3). If building with CUDA support, then download with PROCTYPE = CUDA.
 - To use the GPU version of tensorflow, CUDA 10.1 runtime and CuDNN 7.6.5 for CUDA 10.1 must be installed in the system.
 
 
@@ -56,28 +58,31 @@ Compatible with Autopsy version 4.17.0
 
 ### Directory structure
 
-- ffmpeg-win64-static
 - autopsy_speech_modules
-- deepspeech-0.6.1-models
+- deepspeech-0.9.3-models/english
+- deepspeech-0.9.3-models/chinese
+- ffmpeg-win64-static
 
 ## Linux (Debian)
 
 - cmake
 - gcc
 - ffmpeg
-- python (tested with 3.7.3)
+- python (tested with 3.7.9)
 
 ### Directory structure
 
 - autopsy_speech_modules
-- deepspeech-0.9.3-english-models
-- deepspeech-0.9.3-chinese-models
+- deepspeech-0.9.3-models/english
+- deepspeech-0.9.3-models/chinese
 
 ## Windows
 
 To create the full autopsy module.
 
 Set the `LIBDEEPSPEECH_PATH` cmake variable to the path of folder containing `libdeepspeech.so` from `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` using cmake-gui.
+
+To build without CUDA support set `USE_CUDA` to `OFF` and download the CPU native_client.
 
 Create the inaSpeechSegmenter executable.
 
@@ -112,9 +117,17 @@ The autopsy module will be the directory build/speech_modules which should be co
 
 ## Linux
 
+### Directory structure
+
+- autopsy_speech_modules
+- deepspeech-0.9.3-models/english
+- deepspeech-0.9.3-models/chinese
+
 To create the full autopsy module:
 
 Set the `LIBDEEPSPEECH_PATH` cmake variable to the path of the folder containing `libdeepspeech.so` from `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` using ccmake.
+
+To build without CUDA support set `USE_CUDA` to `OFF` and download the CPU native_client.
 
 Create the inaSpeechSegmenter executable:
 
@@ -143,13 +156,7 @@ The autopsy module will be placed inside the plugin directory.
 
 ## zip file
 
-`make package`
-
-# Known issues
-
-- It is assumed that both inaSpeechSegmenter and libdeepspeech.so are build either with or without CUDA. When built using CUDA the needed CUDA libraries will be copied by inaSpeechSegmenter.
-- On Linux pyinstaller doesn't set the executable permissions to out/dist/ina_speech_segmenter/ina_speech_segmenter. One must do `chmod u+x 'out/dist/ina_speech_segmenter/ina_speech_segmenter'
-- ina_speech_segmenter not working with cudnn on Linux.
+`make package`   
 
 # Authors
 
@@ -158,3 +165,12 @@ This work was developed at Computer Engineering Department, Escola Superior de T
 Concept - Patrício Domingues
 
 Development - Miguel Cerdeira Negrão
+
+# Changelog
+
+## v0.2.0
+
+- updated to deepspeech v0.9.3
+- inaSpeechSegmenter built with CUDA support
+- added chinese model
+- various performance improvements 
