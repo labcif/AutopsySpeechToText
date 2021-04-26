@@ -1,0 +1,29 @@
+name: GitHub Release
+on: push
+
+jobs:
+  create_release:
+    name: Create GitHub Release
+    runs-on: windows-2019
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: get deepspeech client
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/native_client.amd64.cuda.win.tar.xz" -OutFile "$GITHUB_WORKSPACE\native_client.amd64.cuda.win.tar.xz"
+          tar xzvf "$GITHUB_WORKSPACE\native_client.amd64.cuda.win.tar.xz"
+          dir
+      # - uses: Jimver/cuda-toolkit@v0.2.1
+      #   id: cuda-toolkit
+      #   with:
+      #     cuda: '10.1'      
+      # - name: make build directory
+      #   shell: cmd
+      #   run:  |
+      #     mkdir build
+      #     cd build
+      #     cmake -G "Visual Studio 16 2019" -A x64 -DCMAKE_INSTALL_PREFIX:PATH=. ..
+      #     cmake --build . --config Release --target install
+      #- run: echo "Cuda install location: ${{steps.cuda-toolkit.outputs.CUDA_PATH}}"
