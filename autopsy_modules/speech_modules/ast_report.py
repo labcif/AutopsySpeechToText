@@ -169,15 +169,16 @@ class SpeechToTextReportModule(GeneralReportModuleAdapter):
             pool.shutdownNow()
             filesForDeepspeech = filter(lambda x: x is not None, map(lambda future: future.get(), futures))
             pathsForDeepspeech = map(lambda x: x[1], filesForDeepspeech)
+            fileListTxt = writeListToFile(pathsForDeepspeech, "filelist.txt")
             progressBar.increment()
 
             try:
-                ina_run_time = runInaSpeechSegmener(pathsForDeepspeech, self)
+                ina_run_time = runInaSpeechSegmener(fileListTxt, self)
                 self.log(Level.INFO, "ina_speech_segmenter completed in " + str (ina_run_time) + "s")
                 progressBar.updateStatusLabel("Transcribing " + str(len(files)) + " files. Be patient, this may take a while.")
                 progressBar.increment()
                 language = self.configPanel.combo.getSelectedItem()
-                transcribeFiles(pathsForDeepspeech, language, True, self)
+                transcribeFiles(fileListTxt, language, True, self)
             except SubprocessError:
                 self.log(Level.SEVERE, "Error transcribing files with deepspeech and inaSpeecSegmenter" )
                 progressBar.cancel()

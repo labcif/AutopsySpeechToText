@@ -288,10 +288,7 @@ class VadCheckModule(DataSourceIngestModule):
 
         tmpFiles = map(lambda x: x[1], filesForVoiceClassification)
 
-        tempDir = Case.getCurrentCase().getTempDirectory()
-        fileListTxt = os.path.join(tempDir, "filelist.txt")
-        with open(fileListTxt,'w') as f:
-                f.write("\n".join(tmpFiles))
+        fileListTxt = writeListToFile(tmpFiles, "filelist.txt")
 
         self.log(Level.INFO, "Files to classify speech/not speech:\n" + "\n".join(tmpFiles))
         progressBar.progress("Running voice activity detection on " + str(len(tmpFiles)) + " files. Be patient, this may take a while.", 1)

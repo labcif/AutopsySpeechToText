@@ -46,6 +46,13 @@ class SubprocessError(Exception):
         self.stderr = stderr
         self.message = executable + " failed with error code " + str(errorCode) + ".\nstderr: \n" + stderr
 
+def writeListToFile(list, filename):
+        tempDir = Case.getCurrentCase().getTempDirectory()
+        fileListTxt = os.path.join(tempDir, filename)
+        with open(fileListTxt,'w') as f:
+                f.write("\n".join(list))
+        return fileListTxt
+
 def execSubprocess(args, o, raiseException = True):
         process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
@@ -166,17 +173,15 @@ def importTranscribedTextFiles(fileWavPathPairs, obj, factory, tagsManager, tagT
                 wavFileBase, _ = os.path.splitext(wavFile)
                 txtFile = wavFileBase + ".txt"
                 obj.log(Level.INFO, "importing text file: " + txtFile)
-                try:
-                        with codecs.open(txtFile, 'r', encoding="utf8") as txtFile2:
-                                txtContent = txtFile2.read()
-                                art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
-                                att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT, factory.moduleName, txtContent)
-                                art.addAttribute(att)
-                                indexArtifact(art, obj)
-                                tagsManager.addContentTag(file, tagTranscribed)
-                                results.append((file, txtContent))
-                except:
-                        obj.log(Level.INFO, "Could not open " + txtFile)
+                with codecs.open(txtFile, 'r', encoding="utf8", errors='ignore') as txtFile2:
+                        txtContent = txtFile2.read()
+                        art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_EXTRACTED_TEXT)
+                        att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT, factory.moduleName, txtContent)
+                        art.addAttribute(att)
+                        indexArtifact(art, obj)
+                        tagsManager.addContentTag(file, tagTranscribed)
+                        results.append((file, txtContent))
+
         return results
 
 def makeLanguageSelectionComboBox(obj, value):
