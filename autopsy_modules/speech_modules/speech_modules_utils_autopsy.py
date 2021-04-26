@@ -142,23 +142,22 @@ def getAVFileDuration(audioFile, logObj):
                             ], logObj)
         return float(stdout)
 
-
-
-def runInaSpeechSegmener(files, obj):
+def runInaSpeechSegmener(fileList, obj):
         ina_clock_start = time.clock()
         execSubprocess([
                 getExecInModule("ina_speech_segmenter/ina_speech_segmenter"),
-                "-i"] + files + [
+                "-f", fileList,
                 "-o", Case.getCurrentCase().getTempDirectory() ], obj)
         ina_clock_end = time.clock()
         return ina_clock_end - ina_clock_start
 
-def transcribeFiles(tmpAudioFiles, language, showTextSegmentStartTime, logObj):
+def transcribeFiles(fileList, language, showTextSegmentStartTime, logObj):
         baseDir = os.path.dirname(os.path.realpath(__file__))
         args = [getExecInModule("deepspeech/deepspeech_csv"),
         "--model", baseDir + "/models/" + language + "/deepspeech.pbmm",
-        "--scorer", baseDir + "/models/" + language + "/deepspeech.scorer"
-        ] + ([] if showTextSegmentStartTime else ["--hide_segment_time"]) + tmpAudioFiles
+        "--scorer", baseDir + "/models/" + language + "/deepspeech.scorer",
+        "--audio", fileList,
+        ] + ([] if showTextSegmentStartTime else ["--hide_segment_time"])
         execSubprocess(args, logObj)
 
 def importTranscribedTextFiles(fileWavPathPairs, obj, factory, tagsManager, tagTranscribed):

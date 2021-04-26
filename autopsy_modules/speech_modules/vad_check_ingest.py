@@ -287,21 +287,23 @@ class VadCheckModule(DataSourceIngestModule):
             return IngestModule.ProcessResult.OK
 
         tmpFiles = map(lambda x: x[1], filesForVoiceClassification)
+
+        tempDir = Case.getCurrentCase().getTempDirectory()
+        fileListTxt = os.path.join(tempDir, "filelist.txt")
+        with open(fileListTxt,'w') as f:
+                f.write("\n".join(tmpFiles))
+
         self.log(Level.INFO, "Files to classify speech/not speech:\n" + "\n".join(tmpFiles))
-        #progressBar.progress("Running voice activity detection on " + str(len(tmpFiles)) + " files. Be patient, this may take a while.", 1)
-        f = codecs.open("/home/miguel/Development/IPL/investigacao/teste_sons/voice/test_script2/out/ch.mp3.txt", encoding='utf-8')
-        progressBar.progress(f.read())
+        progressBar.progress("Running voice activity detection on " + str(len(tmpFiles)) + " files. Be patient, this may take a while.", 1)
         #now run all files of interest through ina_speech_segmenter to detect voice activity
         try:
-            ina_run_time = runInaSpeechSegmener(tmpFiles, self)
+            ina_run_time = runInaSpeechSegmener(fileListTxt, self)
             self.log(Level.INFO, "ina_speech_segmenter completed in " + str(ina_run_time) + "s")
         except SubprocessError:
-            #debug
-            #for file, tmpFile in filesForVoiceClassification:
-            #    addArtifact(file, "ina_speech_segmenter error")
+            self.log(Level.INFO, "inaSpeechSegmenter failed")
             return IngestModule.ProcessResult.ERROR
 
-        progressBar.progress("Importing " + str(len(filesForVoiceClassification)) + "csv  files", 2)
+        progressBar.progress("Importing " + str(len(filesForVoiceClassification)) + " csv  files", 2)
         
         filesForDeepspeech = []
         for file, tmpFile, duration in filesForVoiceClassification:
@@ -324,8 +326,6 @@ class VadCheckModule(DataSourceIngestModule):
             else:
                 self.log(Level.INFO, "Audio file " + file.getName() + "doesn't match conditions. perc_voiced_frames = " + str(perc_voiced_frames)+
                     "total_voiced = " + str(total_voiced))
-                #debug
-                #addArtifact(file, "not respecting conditions")
 
             # Fire an event to notify the UI and others that there is a new artifact
             IngestServices.getInstance().fireModuleDataEvent(
@@ -339,7 +339,7 @@ class VadCheckModule(DataSourceIngestModule):
             try:
                 deepspeech_clock_start = time.clock()
                 #transcribe all files in one go
-                transcribeFiles(tmpFiles, self.local_settings.vadTranscriberLanguage, self.local_settings.showTextSegmentStartTime, self)
+                transcribeFiles(fileListTxt, self.local_settings.vadTranscriberLanguage, self.local_settings.showTextSegmentStartTime, self)
                 importTranscribedTextFiles(filesForDeepspeech, self, VadCheckModuleFactory,
                                             tagsManager,  tagTranscribed)
                 deepspeech_clock_end = time.clock()
