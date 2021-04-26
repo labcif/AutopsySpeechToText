@@ -42,11 +42,7 @@ int extended_stream_size = 0;
 
 char* hot_words = NULL;
 
-char* ina_speech_segmenter_csv = NULL;
-
 bool show_segment_time = true;
-
-std::vector<std::string> audio_list;
 
 void PrintHelp(const char* bin)
 {
@@ -57,7 +53,7 @@ void PrintHelp(const char* bin)
     "\n"
     "\t--model MODEL\t\t\tPath to the model (protocol buffer binary file)\n"
     "\t--scorer SCORER\t\t\tPath to the external scorer file\n"
-    "\t--audio AUDIO\t\t\tPath to the audio file to run (WAV format)\n"
+    "\t--audio AUDIO\t\t\tPath to the text file with list of wav files\n"
     "\t--beam_width BEAM_WIDTH\t\tValue for decoder beam width (int)\n"
     "\t--lm_alpha LM_ALPHA\t\tValue for language model alpha param (float)\n"
     "\t--lm_beta LM_BETA\t\tValue for language model beta param (float)\n"
@@ -69,7 +65,6 @@ void PrintHelp(const char* bin)
     "\t--extended_stream size\t\t\tRun in stream mode using metadata output, output intermediate results\n"
     "\t--hot_words\t\t\tHot-words and their boosts. Word:Boost pairs are comma-separated\n"
     "\t--hide_segment_time\tHide start time of each text segment\n"
-    "\t--ina_speech_segmenter_csv\tcsv file from inaSpeechSegmenter\n"
     "\t--help\t\t\t\tShow help\n"
     "\t--version\t\t\tPrint version and exits\n";
     char* version = DS_Version();
@@ -80,8 +75,9 @@ void PrintHelp(const char* bin)
 
 bool ProcessArgs(int argc, char** argv)
 {
-    const char* const short_opts = "m:l:b:c:d:tejs:w:z:i:vh";
+    const char* const short_opts = "a:m:l:b:c:d:tejs:w:z:i:vh";
     const option long_opts[] = {
+            {"audio", required_argument, nullptr, 'a'},
             {"model", required_argument, nullptr, 'm'},
             {"scorer", required_argument, nullptr, 'l'},
             {"beam_width", required_argument, nullptr, 'b'},
@@ -95,7 +91,6 @@ bool ProcessArgs(int argc, char** argv)
             {"extended_stream", required_argument, nullptr, 'S'},
             {"hot_words", required_argument, nullptr, 'w'},
             {"hide_segment_time", no_argument, nullptr, 'z'},
-            {"ina_speech_segmenter_csv", required_argument, nullptr, 'i'},
             {"version", no_argument, nullptr, 'v'},
             {"help", no_argument, nullptr, 'h'},
             {nullptr, no_argument, nullptr, 0}
@@ -110,6 +105,10 @@ bool ProcessArgs(int argc, char** argv)
 
         switch (opt)
         {
+        case 'a':
+            audio = optarg;
+            break;
+        
         case 'm':
             model = optarg;
             break;
@@ -169,10 +168,6 @@ bool ProcessArgs(int argc, char** argv)
             show_segment_time = false;
             break;
 
-        case 'i':
-            ina_speech_segmenter_csv = optarg;
-            break;
-
         case 'h': // -h or --help
         case '?': // Unrecognized option
         default:
@@ -196,15 +191,6 @@ bool ProcessArgs(int argc, char** argv)
     if ((stream_size < 0 || stream_size % 160 != 0) || (extended_stream_size < 0 || extended_stream_size % 160 != 0)) {
         std::cout <<
         "Stream buffer size must be multiples of 160\n";
-        return false;
-    }
-
-    for (int index = optind; index < argc; index++) {
-        audio_list.push_back(argv[index]);
-    }
-
-    if (audio_list.empty()) {
-        PrintHelp(argv[0]);
         return false;
     }
 

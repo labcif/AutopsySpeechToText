@@ -618,6 +618,21 @@ main(int argc, char **argv)
     return 1;
   }
 
+  std::ifstream in(audio);
+  if (in.fail()) {
+    std::cout << "Couldn't open the file " << audio << std::endl;
+    return 0;
+  }
+
+  std::vector<std::string> audio_list;
+  std::string str;
+  while (std::getline(in, str))
+  {
+    // Line contains string of length > 0 then save it in vector
+    if(str.size() > 0)
+        audio_list.push_back(str);
+  }
+
   // Initialise DeepSpeech
   ModelState* ctx;
   // sphinx-doc: c_ref_model_start
