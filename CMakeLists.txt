@@ -136,7 +136,7 @@ install(FILES
 
 #utility script
 install(FILES
-    "${CMAKE_SOURCE_DIR}/bash/deepspeech_iss.sh"
+    "${CMAKE_SOURCE_DIR}/python/deepspeech_iss.py"
     DESTINATION speech_modules/bin
     PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
 
