@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import platform
 import subprocess
 import shutil
 from pprint import pprint
@@ -34,14 +35,14 @@ for (file, wav_file) in zip(args.audio_files, wav_files):
 wavFileListPath = output_dir / "filelist.txt"
 writeListToFile(wav_files, wavFileListPath)
 
+execExt = ".exe" if platform.system() == "Windows" else ""
+
 print("Running inaSpeechSegmenter")
-#must change name on windows
-subprocess.run([str(script_directory / PurePath("ina_speech_segmenter/ina_speech_segmenter")), "-o", args.output_dir,
+subprocess.run([str(script_directory / PurePath("ina_speech_segmenter/ina_speech_segmenter" + execExt)), "-o", args.output_dir,
                 "-f", str(wavFileListPath)], check=True)
 
 print("Running deepspeech_csv")
-#must change name on windows
 model = str(script_directory.parent / "models" / PurePath(args.language) / PurePath("deepspeech.pbmm"))
 scorer = str(script_directory.parent / "models" / PurePath(args.language) / PurePath("deepspeech.scorer"))
-subprocess.run([str(script_directory / PurePath("deepspeech/deepspeech_csv")), "--model", model,
+subprocess.run([str(script_directory / PurePath("deepspeech/deepspeech_csv"+execExt)), "--model", model,
                 "--scorer", scorer, "--hide_segment_time", "--audio", str(wavFileListPath)], check=True)
