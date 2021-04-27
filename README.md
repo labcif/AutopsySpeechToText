@@ -8,8 +8,7 @@ Compatible with Autopsy version 4.17.0
 
 # Installation
 
-- There are two versions of the plugins, CPU and GPU.  
-- In order to use the GPU version you need to have an NVIDIA graphics card which supports CUDA in your computer.
+- In order to use the GPU you need to have an NVIDIA graphics card which supports CUDA in your computer.
 - Extract the zip file and place the `speech_modules` folder in the Autopsy's python modules folder. 
 
 # Using
@@ -46,7 +45,7 @@ Compatible with Autopsy version 4.17.0
 
 - download deepspeech models from [here](https://github.com/mozilla/DeepSpeech/releases/tag/v0.9.3).
 - Download `native_client.amd64.PROCTYPE.OSTYPE.tar.xz` from [here](https://github.com/mozilla/DeepSpeech/releases/tag/v0.9.3). If building with CUDA support, then download with PROCTYPE = CUDA.
-- To use the GPU version of tensorflow, CUDA 10.1 runtime and CuDNN 7.6.5 for CUDA 10.1 must be installed in the system.
+- To build with GPU support CUDA 10.1 runtime and CuDNN 7.6.5 for CUDA 10.1 must be installed in the system.
 
 
 ## Windows
